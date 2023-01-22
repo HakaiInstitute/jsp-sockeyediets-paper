@@ -1,0 +1,600 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(vegan)
+library(lubridate)
+library(dendextend)
+library(here)
+library(plotrix)
+library(directlabels)
+library(cowplot)
+library(NbClust)
+library(ggdendro)
+library(scales)
+
+
+```
+
+```{r, warning = FALSE, message=FALSE}
+spat <- read_csv(here::here("raw", "spatial.csv")) 
+temp <- read_csv(here::here("raw", "Temporal.csv"))
+meta <- read_csv(here::here("processed", "metadata.csv"))
+
+spat <- spat %>%
+  mutate(date = make_date(year, month, day)) %>%
+  select(ufn, date, year, month, day, location, region, site, species.no, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon.d, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
+  mutate(corrected.prey.weight = as.numeric(corrected.prey.weight))
+
+temp <- temp %>%
+  filter(ufn != "U238") %>%
+ select(ufn, date, year, month, day, location, region, site, species.no, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon.d, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
+  mutate(month = as.numeric(month), day = as.numeric(day), fishweight = as.numeric(fishweight), length.avg = as.numeric(length.avg))
+
+dat <- full_join(spat, temp) %>%
+  filter(!ufn %in% c("U4767", "U824", "U295")) %>% # removing outliers with ~100% dissimilarity from other samples (by abundance). There are still some outliers but these 3 in particular prevent us from being able to identify meaningful clusters because they are so much more different 
+  mutate(plot.taxon = case_when(plot.taxon == "Euphausiidae" ~ "Euphausiid",
+                                TRUE ~ plot.taxon))
+```
+
+
+
+```{r}
+#Data wrangling:-------#
+
+#ABUNDANCE DATA:
+
+#using detailed level of taxonomy (plot.taxon.d), for coarser resolution use plot.taxon
+#setting up the data and apply an sqrt arcsine tranformation to rel abund data
+#to run as raw abundance, don't run the 6th and 7th lines of code!
+#Calculating abundance data at the individual sample level
+alldiet_abund1 <- dat %>%
+  select(ufn, date, location, site, region, plot.taxon, count) %>%
+  unite(ID, c(site, ufn), remove = FALSE) %>%
+  filter(count != "NA", !plot.taxon %in% c('Nauplius', 'Digested', 'Parasite'), !is.na(plot.taxon)) %>% 
+  mutate(yday = yday(date)) %>%
+  mutate(tperiod = case_when(yday < 152 ~ 'Early',
+                                   yday > 165 ~ 'Late', 
+                                   TRUE ~ 'Mid')) %>%
+  unite(ID2, c(location, tperiod), remove = FALSE) %>%
+  group_by(ID, ID2, tperiod, site, location, region, plot.taxon) %>%
+  summarise(total = sum(count)) %>%
+  mutate(relabund = (total/sum(total))) %>%
+  mutate(arcsin = ((2/pi)*asin(sqrt(relabund)))) %>%
+  select(ID, ID2, tperiod, site, region, location, plot.taxon, arcsin)
+
+#rearranging rows of taxonomic data into columns by plot taxon, making all NA's = 0, selecting only taxonomic columns
+clusdata <- spread(alldiet_abund1, key = plot.taxon, value = arcsin) 
+clusdata[is.na(clusdata)] <- 0
+
+#converting it to a dataframe and setting rownames as the first column and then only selecting the taxonomic data columns
+# as part of the data prep for Bray-Curtis
+clusdata <- data.frame(clusdata)
+rownames(clusdata) = clusdata[,1]
+bc_dat <- clusdata[7:60]
+
+```
+
+```{r}
+# Biomass
+alldiet_biom <- dat %>%
+  select(ufn, date, year, location, site, region, plot.taxon, corrected.prey.weight) %>%
+  mutate(yday = yday(date)) %>%
+  unite(ID, c(site, ufn), remove = FALSE) %>%
+  filter(!corrected.prey.weight %in% c("NA", "#VALUE!"), !plot.taxon %in% c('NA', 'Nauplius', 'Digested', 'Parasite'), !is.na(plot.taxon), !ID %in% c("D07_U218", "D09_U824", "J07_U765", "D08_U4767", "D08_U4770", "D08_U4769")) %>% #These IDs show up as major outliers in the dendrogram
+  mutate(yday = yday(date)) %>%
+  mutate(tperiod = case_when(location == "DI" & year == 2015 & yday < 141 ~ "DI_Early",
+                         location == "DI" & year == 2015 & yday > 140 & yday < 155 ~ "DI_Peak",
+                         location == "DI" & yday > 154 ~ "DI_Late",
+                         location == "DI" & year == 2016 & yday < 139 ~ "DI_Early",
+                         location == "DI" & year == 2016 & yday > 138 & yday < 155 ~ "DI_Peak",
+                         location == "JS" & year == 2015 & yday < 148 ~ "JS_Early",
+                         location == "JS" & year == 2015 & yday > 147 & yday < 159 ~ "JS_Peak",
+                         location == "JS" & year == 2015 & yday > 158 ~ "JS_Late",
+                         location == "JS" & year == 2016 & yday < 149 ~ "JS_Early",
+                         location == "JS" & year == 2016 & yday > 148 & yday < 164 ~ "JS_Peak",
+                         location == "JS" & year == 2016 & yday > 164 ~ "JS_Late")) %>%
+  mutate(corrected.prey.weight = as.numeric(corrected.prey.weight)) %>%
+  group_by(ID, plot.taxon) %>%
+  mutate(total = sum(corrected.prey.weight)) %>%
+  select(-corrected.prey.weight) %>%
+  ungroup() %>%
+  distinct() %>%
+  group_by(ID) %>%
+  mutate(relbiom = (total/sum(total))) %>%
+  mutate(arcsin = ((2/pi)*asin(sqrt(relbiom)))) %>%
+  select(ID, tperiod, site, region, location, plot.taxon, arcsin) %>%
+  mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late", "JS_Early", "JS_Peak", "JS_Late")))
+
+groups <- alldiet_biom %>%
+  group_by(tperiod) %>%
+  summarise(n = length(unique(ID)))
+
+#rearranging rows of taxonomic data into columns by plot taxon, making all NA's = 0, selecting only taxonomic columns
+clusdata <- spread(alldiet_biom, key = plot.taxon, value = arcsin) 
+clusdata[is.na(clusdata)] <- 0
+
+#converting it to a dataframe and setting rownames as the first column and then only selecting the taxonomic data columns
+# as part of the data prep for Bray-Curtis
+clusdata <- data.frame(clusdata)
+rownames(clusdata) = clusdata[,1]
+bc_dat <- clusdata[6:59]
+
+DI_dat <- clusdata %>%
+  filter(location == "DI") %>%
+  select(6:59)
+
+JS_dat <- clusdata %>%
+  filter(location == "JS") %>%
+  select(6:59)
+```
+
+
+```{r}
+#Bray-Curtis:----------#
+
+#vegdist uses the vegan package to calculate the distances between variables
+bc_dist <- vegdist(bc_dat, method = "bray")
+
+#hclust creates the dendrogram by calculating the amount of dissimilarity between clusters,
+# average calculates the distance between all the different values in each group and then averages them
+bc_clust <- hclust(bc_dist, method = "average")
+
+##Presence-Absence Version##
+## using decostand function in vegan to convert data matrix to presence-absence data
+#spat_pa_data <- decostand(spat_bc_data, "pa")
+#spat_bc_dist <- vegdist(spat_pa_data, method = "bray", binary = T)
+#spat_bc_clust <- hclust(spat_bc_dist, method = "average")
+
+```
+
+```{r Cluster metadata}
+# First identify # of clusters using within groups sum of squares and identify 'elbow' 
+## ---- NbClust ----
+mydata <- bc_dat
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+  for (i in 2:20) wss[i] <- sum(kmeans(mydata,
+                                       centers=i)$withinss)
+plot(1:20, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+
+#Elbow at 4 clusters so k = 4
+ 
+# plotting the Bray-Curtis dissimilarity, I made it as a dendrogram to flatten out the bottom
+den_clust = as.dendrogram(bc_clust)
+plot(den_clust)
+
+den_clust %>%
+  rotate(c(42:286, 1:41)) %>%
+  plot(ylab = "Bray Curtis Dissimilarity")
+
+## METADATA ##
+# For Biomass
+sub_grp <- cutree(den_clust, k = 4)
+table(sub_grp)
+den_clust <- den_clust %>%
+  color_branches(k=4)
+plot(den_clust, ylab = "Bray-Curtis Dissimilarity", ylim = c(0,1))
+
+clusdata1 <- clusdata %>%
+        mutate(cluster = sub_grp) %>%
+        mutate(cluster = case_when(cluster == 1 ~ "A",
+                                    cluster == 2 ~ "D",
+                                    cluster == 3 ~ "C",
+                                    cluster == 4 ~ "B")) %>%
+        select(1:4, 60, 5:59) 
+
+#edit metadata to only contain same ID's as in the fish data
+metadata1 <- semi_join(meta, clusdata1, by = "ID")
+
+metadata <- merge(metadata1, clusdata1[,c("ID", "tperiod", "cluster")], by = "ID") %>%
+  select(1, 29:30, 2:5, 7:11, 13, 16:28) %>%
+  mutate(week = lubridate::week(ymd(date))) %>%
+  select(1:12, 27, 13:26) %>%
+  unite(ID3, c(location, year), remove = FALSE) %>%
+  mutate(time = case_when(grepl("Early", tperiod) ~ "Early",
+                          grepl("Peak", tperiod) ~ "Peak",
+                          grepl("Late", tperiod) ~ "Late")) %>%
+  select(1:2, 29, 5, 3:4, 6:28) 
+#write_csv(metadata, "../processed/metadata_with_clusters.csv")
+
+
+# Abundance data:
+# To separate into the two main clusters for the ordination
+#sub_grp <- cutree(den_clust, k = 5)
+#table(sub_grp)
+#clusdata1 <- clusdata %>%
+        #mutate(cluster1 = sub_grp) %>%
+        #mutate(cluster1 = case_when(cluster1 == 1 ~ "A",
+                                    #cluster1 == 2 ~ "C",
+                                    #cluster1 == 3 ~ "B",
+                                    #cluster1 == 4 ~ "E",
+                                    #cluster1 == 5 ~ "D")) %>%
+        #select(1:4, 61, 5:60)
+
+
+```
+
+```{r Add GFI to metadata}
+# bring in the GFI categories, but only for relative biomass (optional - may not use)
+gfi <- read_csv(here::here("processed", "alldiet_wclusters.csv")) %>%
+ select(ufn, cluster, site, fishweight, corrected.bolus.ww, plot.taxon, DI, count, size, corrected.prey.weight) %>%
+  filter(corrected.bolus.ww > 0, !is.na(fishweight), cluster != "NA") %>%
+  group_by(ufn) %>%
+  mutate(gfi = (((corrected.bolus.ww)/1000)/(fishweight))*100) %>%
+  distinct() %>%
+  mutate(gfi_cat = case_when(gfi < 0.2 ~ 'Low',
+                             gfi > 1.0 ~ 'High',
+                             TRUE ~ 'Medium')) %>%
+  select(ufn, gfi_cat) %>%
+  distinct()
+
+metadata <- right_join(gfi, metadata, by = "ufn") %>%
+  mutate(gfi_cat = case_when(is.na(gfi_cat) ~ "Medium",
+                             TRUE ~ gfi_cat)) %>%
+  select(3:5, 1:2, 6:29) %>%
+  arrange(ID)
+
+write_csv(metadata, "../processed/metadata_with_clusters.csv")
+```
+
+
+```{r}
+#Plotting:------------#
+# plotting the Bray-Curtis dissimilarity, I made it as a dendrogram to flatten out the bottom
+den_clust = as.dendrogram(bc_clust) %>%
+  set("branches_k_color", k = 4) %>%
+  rotate(c(42:286, 1:41))
+plot(den_clust)
+
+
+# Pull out ID2 (location and time period identifier)
+den_meta <- metadata %>%
+  select(ID, tperiod, ID3)
+
+# extract dendrogram segment data
+dendrogram_data <- dendro_data(den_clust)
+dendrogram_segments <- dendrogram_data$segments # contains all dendrogram segment data
+head(dendrogram_segments)
+
+# get terminal dendrogram segments
+dendrogram_ends <- dendrogram_segments %>%
+ filter(yend == 0) %>% # filter for terminal dendrogram ends
+ left_join(dendrogram_data$labels, by = "x") %>% # .$labels contains the row names from dist_matrix (i.e., sample_name)
+ rename(ID = label) %>%
+ left_join(den_meta, by = "ID") %>%
+  mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late", "JS_Early", "JS_Peak", "JS_Late")))
+# dataframe now contains only terminal dendrogram segments and merged metadata associated with each iris
+
+ID_col <- c("DI_Early" = "lightsalmon", "DI_Peak" = "orangered1", "DI_Late" = "firebrick", "JS_Early" = "skyblue", "JS_Peak" = "royalblue2", "JS_Late" = "darkblue")
+
+# Plot the dendrogram with each terminal branch coloured by location_timeperiod
+p <- ggplot() +
+ geom_segment(data = dendrogram_segments, aes(x=x, y=y, xend=xend, yend=yend)) +
+ geom_segment(data = dendrogram_ends, aes(x=x, y=y.x, xend=xend, yend=yend, color = tperiod)) +
+ scale_color_manual(values = ID_col) +
+  scale_y_reverse(expand = c(0,0.01), limits = c(1,0)) +
+  coord_flip() + 
+  theme_bw() + 
+  theme(legend.title = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) + 
+  ylab("Distance")  # flipped x and y coordinates for aesthetic reasons
+ 
+ p
+ ggsave("../figs/NMDS/relbiom_dend_migrationtimecoloured2.png", width = 20, height = 20, units = "cm")
+
+
+
+
+```
+
+
+```{r}
+##
+##--------SIMPROF TEST-----------##
+##
+library(clustsig)
+
+simprof_test <- simprof(bc_dat, num.expected=500, num.simulated=499,
+                        method.cluster="average", method.distance="czekanowski", 
+                        method.transform="identity", alpha=0.01, sample.orientation = "row", 
+                        const =1 ,silent=FALSE, increment=50, undef.zero=T, 
+                        warn.braycurtis = F)
+simprof.plot(simprof_test)
+
+####Presence-Absence Version##
+#simprof_test_pa <- simprof(spat_pa_data, num.expected=200, num.simulated=100,
+#method.cluster="average", method.distance="czekanowski", 
+#method.transform="identity", alpha=0.01, sample.orientation = "row", 
+#const =1 ,silent=FALSE, increment=10, undef.zero=F, 
+#warn.braycurtis = F)
+#simprof.plot(simprof_test_pa)
+#-------------------------------
+
+
+
+##------ANOSIM/SIMPER-------##
+##
+
+#create the BC dissimilarity matrix
+bc_dist <- vegdist(bc_dat, method = "bray")
+
+#To remove NA's in rank.biom
+#metadata <- na.omit(metadata)
+
+detach(metadata)
+attach(metadata)
+
+#anosim using our dissimilarity matrix and our grouping variable
+spat.ano <- anosim(bc_dist, tperiod)
+summary(spat.ano)
+plot(spat.ano)
+
+# Or, using adonis to do a PERMANOVA:
+adonis(bc_dat~cluster1, data = metadata, strata = site)
+
+#simper analysis using the BC dissimilarity matrix and grouping variable
+options(scipen = 100)
+sim <- with(metadata, simper(bc_dat, cluster))
+summary(sim) #produces table with average contribution to dissimilary, avg abundances in groups a and b, and the cumulative sum of the contributions to dissimilarity
+sim #lists most influential species and their cumulative contributions
+
+library(plyr)
+simper_k2_df = ldply(sim, function(t) t$toDataFrame())
+simper_k2_df <- do.call("rbind", lapply(sim, as.data.frame))
+write_csv(as.data.frame(sim), file = "../processed/simper_k2.csv", quote = F)
+
+#to get the overall dissimilarity between the two groups
+lapply(sim, FUN = function(x){x$overall})
+
+
+# DI only
+DI_meta <- metadata %>%
+  filter(location == "DI") %>%
+  mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late")))
+DI_dist <- vegdist(DI_dat, method = "bray")
+
+detach(DI_meta)
+attach(DI_meta)
+
+#anosim using our dissimilarity matrix and our grouping variable
+spat.ano <- anosim(DI_dist, tperiod)
+summary(spat.ano)
+plot(spat.ano)
+
+# JS only
+JS_meta <- metadata %>%
+  filter(location == "JS") %>%
+  mutate(tperiod = factor(tperiod, levels = c("JS_Early", "JS_Peak", "JS_Late")))
+JS_dist <- vegdist(JS_dat, method = "bray")
+
+detach(JS_meta)
+attach(JS_meta)
+
+#anosim using our dissimilarity matrix and our grouping variable
+spat.ano <- anosim(JS_dist, tperiod)
+summary(spat.ano)
+plot(spat.ano)
+
+```
+
+```{r}
+##
+##-------Ordination-----------##
+##
+# For ABUNDANCE Data
+metadata <- as.data.frame(metadata) %>%
+  filter(!cluster1 %in% c("D", "E")) %>% # with only 2 samples, doesn't work with ordination ellipses
+  mutate(precip = as.factor(precip), stock_1 = as.factor(stock_1))
+
+# remove the 2 samples from cluster B
+clusdata <- data.frame(clusdata) %>%
+  filter(!ID %in% c("D07_U243", "D08_U4769", "D07_U301", "J07_U765"))
+rownames(clusdata) = clusdata[,1]
+bc_dat <- clusdata[7:60]
+
+
+# For BIOMASS data
+metadata <- as.data.frame(metadata) %>%
+  filter(cluster != "D") %>% # with only 2 samples, doesn't work with ordination ellipses
+  mutate(precip = as.factor(precip), stock_1 = as.factor(stock_1))
+
+# remove the 3 samples from cluster D
+clusdata <- data.frame(clusdata) %>%
+  filter(!ID %in% c("D07_U128", "D08_U4771", "D11_U487"))
+rownames(clusdata) = clusdata[,1]
+bc_dat <- clusdata[6:59]
+
+# metaMDS calculates the MDS stats. k value is the number of dimensions you want it to plot in
+## creating ellipses for clusters, specify how you want the clusters/ellipses drawn in 'ord' by selecting metadata 1-4
+# sourced code from http://userweb.eng.gla.ac.uk/umer.ijaz/bioinformatics/ecological.html
+set.seed(8)
+sol <- metaMDS(bc_dat, distance = "bray", k=3, trymax = 500, autotransform = FALSE, plot = TRUE, noshare = 0.1)
+NMDS = data.frame(x=sol$point[,1], y = sol$point[,2], ID = as.factor(metadata[,4]), tperiod = as.factor(metadata[,2]), time = as.factor(metadata[,3]), date = metadata[,10], year = as.factor(metadata[,11]), location = as.factor(metadata[,7]), region = as.factor(metadata[,8]), cluster = as.factor(metadata[,5]), stock = as.factor(metadata[,29]))
+plot.new()
+ord <- ordiellipse(sol, as.factor(metadata[,3]), display = "sites", kind = "sd", conf = 0.95, label = T)
+dev.off()
+
+sol$stress
+
+plot(sol)
+sol
+
+ef <- envfit(sol~meantemp + meansal + z.abundance, metadata, na.rm = TRUE)
+plot(sol, display = "sites")
+plot.new()
+plot(ef)
+tmp <- with(metadata, ordisurf(sol, meantemp, add = TRUE))
+with(metadata, ordisurf(sol, z.abundance, add = TRUE, col = "green4"))
+
+
+ggplot(subset(NMDS, year == 2015), aes(x = date, y = x, col = location)) +
+  geom_point(position = position_jitter(w = 0.5, h = 0)) +
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+  ggtitle("2015 'x'") +
+  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2015-05-10', '2015-07-01')))
+
+ggplot(subset(NMDS, year == 2016), aes(x = date, y = x, col = location)) +
+  geom_point(position = position_jitter(w = 0.5, h = 0)) +
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+  ggtitle("2016 'x'") +
+  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2016-05-10', '2016-07-01')))
+
+ggplot(subset(NMDS, year == 2015), aes(x = date, y = y, col = location)) +
+  geom_point(position = position_jitter(w = 0.5, h = 0)) +
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+  ggtitle("2015 'y'") +
+  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2015-05-10', '2015-07-01')))
+
+ggplot(subset(NMDS, year == 2016), aes(x = date, y = y, col = location)) +
+  geom_point(position = position_jitter(w = 0.5, h = 0)) +
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+  ggtitle("2016 'y'") +
+  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2016-05-10', '2016-07-01')))
+
+```
+
+```{r}
+##
+##-------ENV DATA-------##
+##
+#First look at the distribution of the env data.. is it normal?
+hist(metadata$meanFL)
+hist(metadata$set_time)
+hist(metadata$meantemp)
+hist(metadata$meansal)
+hist(metadata$meansecchi)
+hist(metadata$z.abundance)
+hist(metadata$z.biomass)
+
+
+#creating environmental matrix using metadata by sample
+envdat <- metadata %>%
+        select(1, 14:28)
+envdat <- data.frame(envdat)
+rownames(envdat) = envdat[,1]        
+envdat <- envdat[,-1]
+envdat <- envdat %>%
+  dplyr::rename(SST = meantemp, SSS = meansal, Zooplankton_Abund = z.abundance)
+
+
+#envfit is a function in package 'vegan' to fit environmental vectors onto an ordination
+ef <- envfit(sol, envdat, permu = 999, na.rm = TRUE)
+ef
+
+#bioenv find the best subset of environmental variables to have max correlation with community dissimilarites
+#for some reason, if I don't include 'use = "complete.obs"' I get 'NA' for meantemp and meansal for their correlations.. not sure what this means?
+envmodel <- bioenv(bc_dat, envdat, method = "spearman", use = "complete.obs", na.rm = TRUE)
+envmodel         
+summary(envmodel) 
+
+em <- bioenv(wisconsin(bc_dat) ~ yday + set_time.adj + SST + SSS + secchi+ forklength + Zooplankton_Abund + z.biomass, envdat)
+em
+summary(em)
+
+
+#creating the data for the env vectors to be overlain on the NMDS - need to have env parameters as rownames
+df_envfit<-scores(ef,display=c("vectors"))
+df_envfit<-df_envfit*vegan:::ordiArrowMul(df_envfit)
+df_envfit<-as.data.frame(df_envfit)
+df_envfit <- cbind(df_envfit, env = row.names(df_envfit))
+df_envfit <- df_envfit %>%
+        filter(env %in% c("yday", "SST", "SSS", "secchi", "Zooplankton_Abund")) # selecting those with r2 > 0.2 in ef
+rownames(df_envfit)=df_envfit[,3]
+df_envfit <- df_envfit %>%
+        select(1:2)
+
+# Pulling out information for stock distribution in ordination
+data.scores = as.data.frame(scores(sol))
+data.scores$stock = metadata$stock_1
+
+library(pals)
+
+ggplot(data.scores, aes(x = NMDS1, y = NMDS2, colour = stock)) +
+  geom_point(size = 4, alpha = 0.5) +
+  scale_colour_manual(values = as.vector(polychrome(35))) +
+  theme_bw()
+
+ggsave("../figs/NMDS/ordination_stocks.png", width = 24, heigh = 16, units = "cm")
+
+```
+
+
+
+```{r}
+#Reference: http://stackoverflow.com/questions/13794419/plotting-ordiellipse-function-from-vegan-package-onto-nmds-plot-created-in-ggplo
+#Data frame df_ell contains values to show ellipses. It is calculated with function veganCovEllipse which is hidden in vegan package. This function is applied to each level of NMDS (group) and it uses also function cov.wt to calculate covariance matrix.
+veganCovEllipse<-function (cov, center = c(0, 0), scale = 1, npoints = 100) 
+{
+        theta <- (0:npoints) * 2 * pi/npoints
+        Circle <- cbind(cos(theta), sin(theta))
+        t(center + scale * t(Circle %*% chol(cov)))
+}
+
+#Generate ellipse points
+df_ell <- data.frame()
+for(g in levels(NMDS$time)){
+        if(g!="" && (g %in% names(ord))){
+                
+                df_ell <- rbind(df_ell, cbind(as.data.frame(with(NMDS[NMDS$time==g,],
+                                                                 veganCovEllipse(ord[[g]]$cov,ord[[g]]$center,ord[[g]]$scale)))
+                                              ,time=g))
+        }
+}
+head(df_ell)
+
+
+#Generate mean values from NMDS plot groups
+NMDS.mean=aggregate(NMDS[,1:2],list(group=NMDS$time),mean)
+
+#for changing site names to numbers
+NMDS$site <- c("1","2","3","4","5","6","12","9","7","8","10","11")
+
+## NMDS PLOT----------------
+##Before plotting, run the ENVDAT code below to generate environmental vectors
+shape_values <- c(1, 19, 2, 17)
+p <- ggplot(data = NMDS, aes(x,y, col = time)) +
+        geom_point(aes(shape=ID, col = time), size = 2.5) + 
+        scale_shape_manual(values=shape_values) + 
+        geom_path(data = df_ell, aes(x=NMDS1, y = NMDS2), size = 1, linetype = 2, alpha = 0.8) +
+        #geom_segment(data = df_envfit, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2), arrow = arrow(length = unit(0.25, "cm")), colour = "grey30") +
+        #geom_text(data = as.data.frame(df_envfit), nudge_y = 0.14, aes(x = NMDS1, y = NMDS2, label = rownames(df_envfit)), colour = "grey30", size = 4) +
+        theme_classic() +
+        #scale_colour_manual(values = c("grey20","grey50","#F8766D", "#00BFC4")) +
+        theme(panel.background = element_rect(fill = "white", colour = "grey50")) +
+        annotate("text", x = -0.9, y = 2, label = "3D stress = 0.13", colour = "grey30") +
+        #theme(legend.position = "none") +
+        labs(col = "Cluster", shape = "Site") 
+  #scale_color_manual(values = c("lightsalmon", "orangered1", "firebrick", "skyblue", "royalblue2", "darkblue"))
+p
+
+ggsave("ALLdietbiom_nmds_bioenv_bycluster.png", path = "../figs/NMDS", width = 18, height = 14, units = "cm", dpi = 300, type = "cairo")
+
+#scale_x_discrete(labels = c("D06" = "1","D07"= "2","D08" = "3", "D09" = "4", "D10" = "5","D11" = "6", "J06" = "7","J07" = "8", "J04" = "9","J08" = "10", "J09" = "11", "J02" = "12"))
+
+#overlaying environmental parameters as contours
+#Get MDS stats
+ordi<-ordisurf(sol,metadata$meantemp,plot = FALSE, bs="ds")
+ordi.grid <- ordi$grid #extracts the ordisurf object
+str(ordi.grid) #it's a list though - cannot be plotted as is
+ordi.mite <- expand.grid(x = ordi.grid$x, y = ordi.grid$y) #get x and ys
+ordi.mite$z <- as.vector(ordi.grid$z) #unravel the matrix for the z scores
+ordi.mite.na.temp <- data.frame(na.omit(ordi.mite)) #gets rid of the nas
+
+NMDS=data.frame(x=sol$point[,1],y=sol$point[,2],region = as.factor(metadata[,3]))
+```
+

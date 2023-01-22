@@ -1,0 +1,146 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r, warning=FALSE, message=FALSE}
+#Making the final metadata by combining what I was already using in the cluster analysis with the zooplankton data
+
+library(tidyverse)
+library(lubridate)
+library(here)
+
+##Creating Metadata for spat and temp combined
+
+#import data
+zoopcomp <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/R/Masters/projects/zooplankton/raw/zoopcomp.csv")
+zoopww <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/R/Masters/projects/zooplankton/raw/zoopww.csv")
+spatial <- read_csv("../raw/spatial.csv")
+temporal <- read_csv("../raw/Temporal.csv")
+survey_data <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/Data/JSP/Release 1.0/survey_data.csv")
+seine_data <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/Data/JSP/Release 1.0/seine_data.csv")
+fish_field_data <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/Data/JSP/Release 1.0/fish_field_data.csv")
+D08_fishdata <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/R/Masters/projects/spatial/processed/D08_fishdata.csv")
+stock_id <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/Data/JSP/Release 1.0/stock_id.csv")
+ysi <- read_csv("C:/Users/Samantha James/Documents/UBC/My Research/Data/JSP/Release 1.0/ysi.csv")
+
+```
+
+```{r}
+## --- FISH DATA ---
+# clean up the spatial data and select necessary fields for merging with temp
+spat <- spatial %>%
+  mutate(date = make_date(year, month, day)) %>%
+  select(ufn, date, location, region, site, forklength, fishweight) 
+
+# clean up temp data and select necessary fields for merging with spat
+temp <- temporal %>%
+ select(ufn, date, location, region, site, forklength, fishweight) %>%
+  mutate(fishweight = as.numeric(fishweight))
+  #filter(ufn != "U238")
+
+# merge the two datasets
+dat <- full_join(spat, temp)
+
+
+## --- ZOOP DATA ---
+# Calculating zooplankton abundance per site for metadata
+zoop.abund.bysite <- zoopcomp %>%
+        select(zoop_sample_id = sampleID, date, location, site, abundance) %>%
+        filter(abundance != "NA") %>%
+        mutate(location = factor(location, levels = c("JS", "DI")), site = factor(site, levels = c("J02", "J09", "J08", "J04", "J07", "J06", "D11", "D10", "D09", "D08", "D07", "D06"))) %>%
+        group_by(zoop_sample_id, date, location, site) %>%
+        summarise(abundance = sum(abundance))
+
+#Adding zooplankton data        
+zoop.2mm <- zoopcomp %>%
+        select(zoop_sample_id = sampleID, date, location, site, sizeclass, totcount, abundance) %>%
+        filter(totcount != "NA", abundance != "NA") %>%
+        mutate(size2 = if_else(sizeclass == "<1" | sizeclass == "1-2", "1", "2")) %>%
+        group_by(location, date, zoop_sample_id, size2) %>%
+        summarize(counts = sum(totcount)) %>%
+        mutate(proportion2 = counts/(sum(counts))) %>%
+        filter(size2 == "2")
+
+zoop.abund <- merge(zoop.abund.bysite, zoop.2mm[,c("zoop_sample_id", "proportion2")], by = "zoop_sample_id")
+
+
+#Calculating zooplankton biomass per site
+zoop.biom.bysite <- zoopww %>%
+        select(zoop_sample_id = sampleID, date, location, site, biomass) %>%
+        filter(biomass != "NA") %>%
+        mutate(location = factor(location, levels = c("JS", "DI")), site = factor(site, levels = c("J02", "J09", "J08", "J04", "J07", "J06", "D11", "D10", "D09", "D08", "D07", "D06"))) %>%    
+        group_by(zoop_sample_id, location, site) %>%
+        summarize(biomass = sum(biomass))
+
+zoop.biom.2mm <- zoopww %>%
+        select(zoop_sample_id = sampleID, date, location, site, biomass, sieve, processor.notes) %>%
+        filter(!is.na(biomass), !processor.notes %in% c("gelatinous", "gelatinous, not including seaweed")) %>%
+        mutate(size2 = if_else(sieve == "250", "1", "2")) %>%
+        group_by(location, date, zoop_sample_id, size2) %>%
+        summarize(biom2 = sum(biomass)) %>%
+        mutate(biomprop2 = biom2/sum(biom2)) %>%
+        filter(size2 == "2")
+
+zoop.biom <- merge(zoop.biom.bysite, zoop.biom.2mm[,c("zoop_sample_id", "biomprop2")], by = "zoop_sample_id")
+
+#merging the abundance and biomass data into one df
+zoop.meta <- merge(zoop.abund, zoop.biom[, c("zoop_sample_id", "biomass", "biomprop2")], by = "zoop_sample_id")
+
+
+## --- ENV DATA ---
+ysi.avg <- ysi %>%
+        group_by(survey_id) %>%
+        summarise(meantemp = mean(temperature), meansal = mean(salinity))
+
+fish_stock <- select(stock_id, ufn, semsp_id, region_1, stock_1, prob_1) %>%
+        filter(prob_1 > "0.7")
+
+# Calculating % Fraser stocks (region_1 = 1-4)
+stocks <- meta6 %>%
+        separate(date, c("year", "month", "day"), sep = "-", remove = FALSE) %>%
+        group_by(location, year) %>%
+        mutate(n = length(unique(ufn))) %>%
+        group_by(location, year, n) %>%
+        count(region_1) %>%
+        mutate(prop = nn/n)
+
+seine <- seine_data %>%
+        filter(seine_id != "DN428") # collecting trainer fish
+
+# Putting it all together
+meta1 <- merge(dat, fish_field_data[, c("ufn", "seine_id")], by = "ufn")
+meta2 <- merge(meta1, seine[, c("seine_id", "survey_id")], by = "seine_id")
+meta3 <- left_join(meta2, ysi.avg, by = "survey_id")
+meta4 <- merge(meta3, seine[, c("seine_id", "set_time", "lat", "lon")], by = "seine_id")
+meta5 <- merge(meta4, survey_data[, c("survey_id", "zoop_sample_id", "secchi", "precip", "cloud_cover", "sea_state")], by = "survey_id")
+meta6 <- left_join(meta5, fish_stock[, c("ufn", "stock_1")], by = "ufn") %>%
+        distinct()
+meta7 <- full_join(meta6, zoop.meta[, c("zoop_sample_id", "abundance", "biomass", "proportion2", "biomprop2")], by = "zoop_sample_id")
+meta <- meta7 %>%
+        mutate(set_time.adj = hour(set_time) * 60 + minute(set_time) + second(set_time) / 60) %>%
+        mutate(yday = yday(date)) %>%
+        separate(date, c("year", "month", "day"), sep = "-", remove = FALSE) %>%
+  unite(ID, c(site, ufn), remove = FALSE) %>%
+          select(ID, ufn, location, region, site, survey_id, date, year, month, day, yday, set_time, set_time.adj, lat, lon, forklength, fishweight, meantemp, meansal, secchi, z.abundance = abundance, z.biomass = biomass, z.abund.2mm = proportion2, z.biom.1mm = biomprop2, precip, cloud_cover, sea_state, stock_1) %>%
+        distinct()
+        
+write_csv(meta, "../processed/metadata.csv")
+
+
+
+
+meta_summary <- meta %>%
+        select(semsp_id, location, date, year, set_time.adj, forklength, fishweight, meantemp, meansal, secchi, z.abundance, z.biomass, z.abund.2mm, z.biom.1mm) %>%
+        group_by(date) %>%
+        mutate(meanFL = mean(forklength), meanW = mean(fishweight)) %>%
+        select(location, date, year, set_time.adj, meanFL, meanW, meantemp, meansal, secchi, z.abundance, z.biomass, z.abund.2mm, z.biom.1mm) %>%
+        distinct()
+write_csv(meta, "./processed/temp_meta_summary.csv")
+
+
+
+```
+

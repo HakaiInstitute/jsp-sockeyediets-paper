@@ -1,0 +1,341 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r include = F, messages = F}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(scales)
+library(ggpubr)
+library(patchwork)
+
+# Fish data
+survey_data <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/supplemental_materials/tidy_data/survey_data.csv")
+seine_data <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/supplemental_materials/tidy_data/seine_data.csv")
+
+# Zoop data
+zoop_ww <- read_csv(here("raw", "combined_JSP_zoop_ww.csv")) 
+zoop_taxa <- read_csv(here("raw", "combined_JSP_zoop_tax.csv"))
+
+# env data
+ysi_data <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/supplemental_materials/tidy_data/ysi.csv")
+secchi <- survey_data %>%
+  select(survey_date, site_id, secchi)
+
+env_dat <- left_join(ysi_data, secchi, by = c("survey_date", "site_id"))
+```
+
+```{r Migration timing}
+
+survey_seines <- right_join(survey_data, seine_data) %>% 
+  mutate(location = case_when(grepl("D", site_id) ~ "DI",
+                              grepl("J", site_id) ~ "JS")) 
+
+
+tidy_catch <- survey_seines %>% 
+  select(survey_date, seine_id, location, so_taken, so_total) %>%
+  mutate(so_total = case_when(is.na(so_total) ~ so_taken,
+                              TRUE ~ so_total)) %>%
+  filter(so_total > 0) %>%
+  mutate(year = year(survey_date), yday = yday(survey_date)) %>%
+  group_by(year) %>%
+  mutate(SOTOT = sum(so_taken)) %>%
+  select(-so_taken) %>%
+  drop_na() 
+  
+
+peak_dates <- tidy_catch[rep(row.names(tidy_catch), tidy_catch$so_total), 1:6] %>%
+  filter(year %in% c(2015, 2016)) %>%
+  group_by(year, location) %>%
+  summarise(n = n(), q1 = quantile(yday, probs = 0.25), q3 = quantile(yday, probs = 0.75), median = median(yday)) %>%
+  ungroup() %>% 
+  mutate(year = as.character(year))
+
+migration_timing <- survey_seines %>% 
+  mutate(year = year(survey_date), yday = yday(survey_date)) %>% 
+  filter(year %in% c(2015, 2016)) %>%
+  mutate(so_total = case_when(is.na(so_total) ~ so_taken,
+                              TRUE ~ so_total)) %>%
+  group_by(year, location, yday) %>% # Here I group by day and take the average of the catches for each day. 
+  summarize(so_total = mean(so_total, na.rm = T)) %>% 
+  ungroup() %>% 
+  select(location, year, yday, so_total) %>% 
+  mutate(year = as_factor(year)) %>% 
+  group_by(year, location) %>%
+  mutate(roll_avg = zoo::rollmean(so_total, 7, fill = NA))
+
+migration_timing_p <- ggplot(migration_timing, aes(x=yday, y=so_total)) +
+  geom_bar(aes(fill = location), alpha = .7, stat = "identity", position=position_dodge(), show.legend = FALSE)+
+  geom_line(aes(y = roll_avg, group = location, colour = location), size = .75, show.legend = FALSE) +
+  geom_rect(aes(xmin = q1, xmax = q3, ymin = 0, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), data = peak_dates, inherit.aes = FALSE, show.legend = FALSE) +
+  facet_grid(.~year) +
+  ylab("Sockeye Catch") +
+  xlab("Date") +
+  theme_classic() +
+  theme(
+              axis.text.y = element_text(size = 10),
+              axis.text.x = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 10),
+              panel.background = element_rect(fill = "white", colour = "grey50"),
+              strip.background = element_blank(),
+              strip.text = element_text(size = 10),
+              legend.title = element_blank(),
+              legend.position = "none") +
+  scale_x_continuous(limits = c(120, 196), breaks = c(120, 135, 152, 166, 182, 196), labels = c("May 1", "May 15", "June 1", "June 15", "July 1", "July 15"))  +
+  scale_y_continuous(limits = c(0, 2250), breaks = seq(0, 2500, by = 500), expand = c(0,10))
+ 
+migration_timing_p
+
+```
+
+
+```{r Env data}
+# Calculate the mean SST, SSS, and secchi values per week per location per year
+env <- env_dat %>%
+  select(1:2, 9:13) %>%
+  mutate(location = case_when(grepl("D", site_id) ~ "DI",
+                              grepl("J", site_id) ~ "JS")) %>%
+  rowwise() %>%
+  mutate(meanT = mean(c(temperature_0m, temperature_1m), na.rm = T), meanS = mean(c(salinity_0m, salinity_1m), na.rm = T)) %>%
+  select(-c(3:6)) %>%
+  mutate(yday = yday(ymd(survey_date)), week = week(ymd(survey_date)), year = year(ymd(survey_date))) %>%
+  filter(year %in% c("2015", "2016")) %>%
+  add_row(week = 18, year = 2015) %>%
+  add_row(week = 18, year = 2016) %>%
+  group_by(year, location, week) %>%
+  mutate(meanSST = mean(meanT), sdSST = sd(meanT), meanSSS = mean(meanS), sdSSS = sd(meanS), meansecchi = mean(secchi, na.rm = T), sdsecchi = sd(secchi, na.rm = T)) %>%
+  group_by(year, location) %>%
+  mutate(annual_meanSST = mean(meanT)) %>%
+  select(c(4, 7:15)) %>%
+  distinct()
+  
+
+# create a rectangle overlay to show the peak sockeye migration window for each year - set different ymin values to match SST
+rect <- data.frame(year = c(2015, 2015, 2016, 2016), location = c("DI", "JS", "DI", "JS"), xmin = c(20.8, 21.7, 20.5, 21.8), xmax = c(22.5, 23.1, 22.5, 23.8))
+
+
+SST <- ggplot(subset(env, !is.na(meanSST)), aes(x = week, y = meanSST)) +
+  geom_point(aes(colour = location, pch = location)) +
+  geom_line(aes(colour = location)) +
+  geom_ribbon(aes(ymin = meanSST - sdSST, ymax = meanSST + sdSST, colour = location, fill = location), alpha = 0.35) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = 7, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), linetype = 5, data = rect, inherit.aes = FALSE) +
+  facet_wrap(~year) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+              axis.text.y = element_text(size = 10),
+              axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 10),
+              panel.background = element_rect(fill = "white", colour = "grey50"),
+              strip.background = element_blank(),
+              strip.text = element_blank(),
+              legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_x_continuous(limits = c(18, 28),
+                     breaks = c(18, 20, 22, 24, 26, 28), 
+                     labels = c("May 1", "May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  scale_y_continuous(limits = c(7, 18), breaks = seq(8, 18, by = 2), expand = c(0,0)) +
+  ylab(expression("Temperature " (degree~C)))
+SST
+
+
+SSS <- ggplot(subset(env, !is.na(meanSSS)), aes(x = week, y = meanSSS)) +
+  geom_point(aes(colour = location, pch = location)) +
+  geom_line(aes(colour = location)) +
+  geom_ribbon(aes(ymin = meanSSS - sdSSS, ymax = meanSSS + sdSSS, colour = location, fill = location), alpha = 0.35) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = 20, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), data = rect, inherit.aes = FALSE) +
+  facet_wrap(~year) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+              axis.text.y = element_text(size = 10),
+              axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 10),
+              panel.background = element_rect(fill = "white", colour = "grey50"),
+              strip.background = element_blank(),
+              strip.text = element_blank(),
+              legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_x_continuous(limits = c(18, 28),
+                     breaks = c(18, 20, 22, 24, 26, 28), 
+                     labels = c("May 1", "May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  scale_y_continuous(limits = c(20, 33), breaks = seq(22, 34, by = 4), expand = c(0,0)) +
+  ylab(expression("Salinity " (psu)))
+SSS  
+
+
+secchi <- ggplot(subset(env, !is.na(meansecchi)), aes(x = week, y = meansecchi)) +
+  geom_point(aes(colour = location, pch = location)) +
+  geom_line(aes(colour = location)) +
+  geom_ribbon(aes(ymin = meansecchi - sdsecchi, ymax = meansecchi + sdsecchi, colour = location, fill = location), alpha = 0.35) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = 0, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), data = rect, inherit.aes = FALSE) +
+  facet_wrap(~year) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 10),
+        panel.background = element_rect(fill = "white", colour = "grey50"),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_x_continuous(limits = c(18, 28),
+                     breaks = c(18, 20, 22, 24, 26, 28), 
+                     labels = c("May 1", "May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  scale_y_continuous(limits = c(0, 18), breaks = seq(2, 18, by = 4), expand = c(0,0)) +
+  ylab(expression("Secchi Depth " (m)))
+secchi  
+
+```
+
+```{r Zoops}
+zoop_biom <- zoop_ww %>%
+  select(sample_id, site, date, biomass) %>%
+  group_by(sample_id, site, date) %>%
+  summarise(biomass = sum(biomass, na.rm = T)) %>%
+  filter(biomass > 0, site != "QU39")
+
+zoop_abund <- zoop_taxa %>%
+  select(sample_id, site, date, abundance) %>%
+  group_by(sample_id, site, date) %>%
+  summarise(abundance = sum(abundance, na.rm = T)) %>%
+  filter(abundance > 0, site != "QU")
+  
+zoop_data <- left_join(zoop_abund, zoop_biom) %>%
+  filter(biomass != "NA")
+
+options(scipen = 999)
+zoop_dat <- zoop_data %>%
+  mutate(location = case_when(grepl("D", site) ~ "DI",
+                              grepl("Q", site) ~ "DI",
+                              grepl("J", site) ~ "JS")) %>% 
+  mutate(size = biomass/abundance) %>%
+  mutate(yday = yday(ymd(date)), week = week(ymd(date)), year = year(ymd(date))) %>%
+  group_by(year, location, week) %>%
+  mutate(mean_biom = mean(biomass), sd_biom = sd(biomass), mean_abund = mean(abundance), sd_abund = sd(abundance), mean_size = mean(size), sd_size = sd(size))
+
+
+# create a rectangle overlay to show the peak sockeye migration window for each year - set different ymin values to match SST
+rect <- data.frame(year = c(2015, 2015, 2016, 2016), location = c("DI", "JS", "DI", "JS"), xmin = c(20.8, 21.7, 20.5, 21.8), xmax = c(22.5, 23.1, 22.5, 23.8))
+
+zoop_biom_p <- ggplot(zoop_dat, aes(x = week, y = mean_biom)) +
+  geom_point(aes(colour = location, pch = location)) +
+  geom_line(aes(colour = location)) +
+  geom_ribbon(aes(ymin = mean_biom - sd_biom, ymax = mean_biom + sd_biom, colour = location, fill = location), alpha = 0.35) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), data = rect, inherit.aes = FALSE) +
+  facet_wrap(~year) +
+  theme_classic() +
+  theme(axis.text.x = element_blank(),
+    axis.text.y = element_text(size = 10),
+              axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 10),
+              panel.background = element_rect(fill = "white", colour = "grey50"),
+              strip.background = element_blank(),
+              strip.text = element_blank(),
+              legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_x_continuous(limits = c(18, 28), 
+                     breaks = c(18, 20, 22, 24, 26, 28), 
+                     labels = c("May 1", "May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  ylab(expression(atop("Zoop Biom", paste((mg~"\U00B7"~m^-3)))))
+zoop_biom_p 
+
+zoop_abund_p <- ggplot(zoop_dat, aes(x = week, y = mean_abund)) +
+  geom_point(aes(colour = location, pch = location)) +
+  geom_line(aes(colour = location)) +
+  geom_ribbon(aes(ymin = mean_abund - sd_abund, ymax = mean_abund + sd_abund, colour = location, fill = location), alpha = 0.35) +
+  #geom_rect(aes(xmin = xmin, xmax = xmax, ymin = 0, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), data = rect, inherit.aes = FALSE) +
+  facet_wrap(~year) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 10),
+              axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 10),
+              panel.background = element_rect(fill = "white", colour = "grey50"),
+              strip.background = element_blank(),
+              strip.text = element_blank(),
+              legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_x_continuous(limits = c(18, 28), 
+                     breaks = c(18, 20, 22, 24, 26, 28), 
+                     labels = c("May 1", "May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  ylab(expression("Zoop Abundance " (ind~m^-3)))
+zoop_abund_p 
+
+
+zoop_size <- zoop_taxa %>%
+  select(sample_id, site, date, abundance, size_class) %>%
+  filter(abundance > 0, site != "QU") %>%
+  mutate(year = year(ymd(date)), week = week(ymd(date))) %>%
+  mutate(size_class = case_when(size_class %in% c("<1", "1-2") ~ "<2",
+                                TRUE ~ size_class))
+  
+
+zoop_size_biom <- zoop_ww %>%
+  select(sample_id, site, date, biomass, sieve) %>%
+  filter(biomass > 0, site != "QU39", sieve != "NA") %>%
+  mutate(year = year(ymd(date)), week = week(ymd(date)), sieve = as.character(sieve)) %>%
+  mutate(sieve = case_when(sieve == "250" ~ "200",
+                           sieve == "10000" ~ "2000",
+                           TRUE ~ sieve)) %>%
+  mutate(sieve = factor(sieve, levels = c("200", "1000", "2000"))) %>%
+  add_row(week = 28, year = 2015) %>%
+  add_row(week = 28, year = 2016) %>%
+  filter(week > 17, week < 29)
+
+zoop_size_biom_p <- ggplot(zoop_size_biom, aes(x = as.factor(week), y = biomass, fill = sieve)) +
+  geom_bar(position = "fill", stat = "identity") +
+  facet_wrap(~year) +
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y = element_text(size = 10),
+              axis.title.x = element_blank(),
+              axis.title.y = element_text(size = 10),
+              panel.background = element_rect(fill = "white", colour = "grey50"),
+              strip.background = element_blank(),
+              strip.text = element_blank(),
+              legend.title = element_blank(),
+        legend.position = "bottom") +
+  scale_x_discrete(breaks = c("18", "20", "22", "24", "26", "28"), 
+                     labels = c("May 1", "May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  scale_fill_manual(values = c("cadetblue1","cadetblue3","cadetblue4")) +
+  ylab(expression(atop("Prey Size Class", paste("% of Biomass"))))
+zoop_size_biom_p
+
+ylab(expression(atop("Zoop Biom", paste((mg~"\U00B7"~m^-3)))))
+
+```
+
+
+
+```{r Combo Plots}
+
+# Use patchwork to combine plots and save
+env_list <- list(migration_timing_p, SST, SSS, secchi)
+env_plot <- wrap_plots(env_list, ncol = 1, nrow = 4)
+
+png(filename = "../figs/migrationtiming/migration_envdat.png", width = 16, height = 16, units = "cm", res = 300, type = "cairo")
+env_plot + plot_layout(guides = "collect") 
+dev.off()
+
+
+# Use patchwork to combine plots and save
+((migration_timing_p/SST/SSS/secchi/zoop_biom_p/zoop_size_biom_p) + plot_layout(guides = 'collect')) & theme(legend.position = "bottom") & theme(plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm"))
+
+ggsave("../figs/migrationtiming/migration_alldat.png", width = 16, height = 24, units = "cm")
+
+```
+
+
+
+
+

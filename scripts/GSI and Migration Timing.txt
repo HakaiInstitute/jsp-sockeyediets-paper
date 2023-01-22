@@ -1,0 +1,154 @@
+---
+title: "GSI and Migration Timing"
+author: "Brett Johnson"
+date: "11/01/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(here)
+library(lubridate)
+```
+
+```{r, join data}
+# Download stock ID sample and results data
+gsi_samples <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/tidy_data/dna_samples.csv")
+
+stock_id <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/tidy_data/stock_id.csv")
+
+survey_seines_fish <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/tidy_data/survey_seines_fish.csv")
+
+dna <- right_join(survey_seines_fish, gsi_samples, by = 'ufn') %>% 
+  right_join(stock_id, by = "sample_id") %>% 
+  mutate(is_DI = grepl(x = site_id, pattern = "D"))
+         
+dna$region = if_else(dna$is_DI == TRUE, "DI", "JS")
+
+
+```
+
+```{r, GSI stock proportions}
+stock_prop <- dna %>% 
+  filter(year(survey_date) %in% c(2015, 2016)) %>% 
+  mutate(year = year(survey_date)) %>% 
+  group_by(year, stock_1) %>%  
+  summarize(n = n()) %>% 
+  mutate(proportion = n / sum(n)) %>% 
+  arrange(-proportion)
+
+ggplot(stock_prop, aes(x = reorder(stock_1, n), proportion), y = proportion) +
+  geom_bar(stat="identity", position = position_dodge()) + 
+  ggtitle("Genetic Stock Proportions") +
+  facet_wrap(~year) +
+  xlab("") + 
+  ylab("Proportion") +
+  coord_flip() 
+  
+
+```
+
+
+```{r, Migration timing quartiles}
+
+survey_data <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/tidy_data/survey_data.csv")
+
+seine_data <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/tidy_data/seine_data.csv")
+
+survey_seines <- right_join(survey_data, seine_data) %>% 
+  mutate(is_DI = grepl(x = site_id, pattern = "D"),yday = yday(survey_date))
+
+survey_seines$region = if_else(survey_seines$is_DI == TRUE, "DI", "JS")
+
+tidy_catch <- survey_seines %>% 
+  select(
+    survey_date,
+    seine_id,
+    region,
+    so_total,
+  ) %>%
+  filter(region == "DI",
+         so_total > 0) %>%
+  mutate(year = year(survey_date),
+         yday = yday(survey_date)) %>%
+  gather(
+    `so_total`,
+    key = "species",
+    value = "n"
+  ) %>%
+  drop_na()
+
+peak_dates <- tidy_catch[rep(row.names(tidy_catch), tidy_catch$n), 1:6] %>%
+  filter(year %in% c(2015, 2016),
+    species == ("so_total")) %>%
+  mutate(yday = yday(survey_date)) %>%
+  group_by(year, region, species) %>%
+  summarise(n = n(), q1 = quantile(yday, probs = 0.25), q3 = quantile(yday, probs = 0.75), median = median(yday)) %>%
+  ungroup() %>% 
+  mutate(species = replace(species, species == "so_total", "SO")) %>%
+  mutate(year = as.character(year))
+
+```
+
+```{r, rolling mean migration timing}
+  
+migration_timing_2015 <- survey_seines %>% 
+  mutate(year = year(survey_date),
+         yday = yday(survey_date)) %>% 
+  filter(region == "DI",
+         year %in% c(2015)) %>% 
+  group_by(year, yday) %>% # Here I group by day and take the average of the catches for each day. 
+  summarize(so_total = mean(so_total)) %>% 
+  ungroup() %>% 
+  select(yday, so_total, year) %>% 
+  mutate(year = as_factor(year)) %>% 
+  mutate(roll_avg = zoo::rollmean(so_total, 7, fill = NA)) %>% 
+  ggplot(aes(x=yday,
+             y=so_total)) +
+  geom_bar(aes(fill = year), alpha = .35, stat = "identity", position=position_dodge())+
+  geom_line(aes(y = roll_avg, group = year, colour = year), 
+            size = .75) +
+  ylab("Sockeye catch") +
+  xlab("Date") +
+  theme(legend.title=element_blank()) +
+  theme(legend.justification=c(1,1), legend.position=c(1,1)) +
+  scale_x_continuous(breaks = c(135, 152, 166, 182, 196), 
+                     labels = c("May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  ggtitle("2015 Sockeye Migration Timing") +
+  coord_cartesian(xlim = c(130,196), ylim = c(0,1500)) +
+  annotate("rect", xmin = 141, xmax = 154, ymin = 0, ymax = Inf, 
+           alpha = .5)
+
+migration_timing_2016 <- survey_seines %>% 
+  mutate(year = year(survey_date),
+         yday = yday(survey_date)) %>% 
+  filter(region == "DI",
+         year %in% c(2016)) %>% 
+  group_by(year, yday) %>% 
+  summarize(so_total = mean(so_total)) %>% 
+  ungroup() %>% 
+  select(yday, so_total, year) %>% 
+  mutate(year = as_factor(year)) %>% 
+  mutate(roll_avg = zoo::rollmean(so_total, 7, fill = NA)) %>% 
+  ggplot(aes(x=yday,
+             y=so_total)) +
+  geom_bar(aes(fill = year), alpha = .35, stat = "identity", position=position_dodge())+
+  geom_line(aes(y = roll_avg, group = year, colour = year), 
+            size = .75) +
+  ylab("Sockeye catch") +
+  xlab("Date") +
+  theme(legend.title=element_blank()) +
+  theme(legend.justification=c(1,1), legend.position=c(1,1)) +
+  scale_x_continuous(breaks = c(135, 152, 166, 182, 196), 
+                     labels = c("May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  ggtitle("2016 Sockeye Migration Timing") +
+  coord_cartesian(xlim = c(130 ,196), ylim = c(0,1500)) +
+  annotate("rect", xmin = 139, xmax = 154, ymin = 0, ymax = Inf, 
+           alpha = .5)
+
+cowplot::plot_grid(migration_timing_2015, migration_timing_2016, ncol = 1)
+```

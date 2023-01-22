@@ -1,0 +1,458 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, include = F}
+library(tidyverse)
+library(ggpubr)
+library(here)
+
+myzoopcomp <- read_csv("../raw/zoopcomp.csv")
+myzoopww <- read_csv("../raw/zoopww.csv")
+spat <- read_csv("../raw/spatial.csv")
+
+allzoopcomp <- read_csv(here("raw", "combined_JSP_zoop_tax.csv"))
+allzoopww <- read_csv(here("raw", "combined_JSP_zoop_ww.csv"))
+```
+
+
+```{r Spatial}
+# Code to show the abundance and biomass of zoops from 2015 spatial samples
+
+zoop_abund <- myzoopcomp %>%
+        separate(date, c("year", "month", "day"), sep = "-") %>%
+        select(sampleID, year, location, site, plot.taxon.g, sizeclass, totcount, abundance, biomass_wet) %>%
+        filter(!sampleID %in% c("QPK1045", "QPK1049", "QPK1012", "QPK1019", "JSPK1014", "JSPK1054","JSPK1075", "JSPK1093"), totcount != "NA", year == "2015") %>%  # removing the other temporal zoop samples from D07 and J07 
+        mutate(location = factor(location, levels = c("JS", "DI")), site = factor(site, levels = c("J02", "J09", "J08", "J04", "J07", "J06", "D11", "D10", "D09", "D08", "D07", "D06"))) %>%
+        group_by(location, site, plot.taxon.g) %>%
+        summarise(totcount = sum(totcount), totabund = sum(abundance), totbiom = sum(biomass_wet))
+ 
+
+#plotting species comp using absolute zoop abundances
+zoopcomp.abund <- ggplot(data = zoop_abund, aes(x = site, y = totabund, fill = plot.taxon.g)) + 
+        geom_bar(stat = "identity", colour = "black") +
+        theme_classic()+
+        facet_grid(.~location, scales = "free") +
+        scale_fill_manual(
+                values = c("tomato3", "darkorange1", "mediumseagreen", "mediumpurple3","pink3", "goldenrod1", "royalblue3", "grey40"),
+                labels = c("Amphipod", "Barnacle", "Calanoid Copepod", "Cladoceran", "Decapod", "Euphausiid", "Larvacean", "Other")
+        ) +
+        theme(
+                axis.text.x = element_blank(),
+                axis.text.y = element_text(size = 10),
+                axis.title.x = element_blank(),
+                axis.title.y = element_text(size = 11, margin = margin(r = 10)),
+                panel.background = element_rect(fill = "white", colour = "grey50"),
+                strip.background = element_blank(),
+                strip.text = element_text(size = 10),
+                legend.title=element_blank(),
+                legend.text = element_text(size = 9),
+                legend.key.size = unit(0.7, "line"),
+                legend.position = "bottom",
+                plot.margin=unit(c(0.2,0.4,0.2,0.4),"cm")
+        ) +
+        labs(y = expression(Abundance~(ind~m^-3))) + 
+        scale_y_continuous(expand = c(0,30), limits = c(0,4000))
+
+zoopcomp.abund
+
+
+#plotting zoop absolute biomass
+zoopcomp.biom <- ggplot(data = zoop_abund, aes(x = site, y = totbiom, fill = plot.taxon.g)) + 
+        geom_bar(stat = "identity", colour = "black") +
+        theme_classic()+
+        facet_grid(.~location, scales = "free") +
+        scale_fill_manual(
+                values = c("tomato3", "darkorange1", "mediumseagreen", "mediumpurple3","pink3", "goldenrod1", "royalblue3", "grey40"),
+                labels = c("Amphipod", "Barnacle", "Calanoid Copepod", "Cladoceran", "Decapod", "Euphausiid", "Larvacean", "Other")
+        ) +
+        theme(
+                axis.text.x = element_text(size = 10),
+                axis.text.y = element_text(size = 10),
+                axis.title.x = element_blank(),
+                axis.title.y = element_text(size = 11, margin = margin(r = 10)),
+                panel.background = element_rect(fill = "white", colour = "grey50"),
+                strip.background = element_blank(),
+                strip.text = element_blank(),
+                legend.title=element_blank(),
+                legend.text = element_text(size = 9),
+                legend.key.size = unit(0.7, "line"),
+                legend.position = "bottom",
+                plot.margin=unit(c(0.6,0.4,0.2,0.4),"cm")
+        ) +
+        labs(y = expression(Biomass~(ww~-~mg~m^-3))) +
+        scale_y_continuous(expand = c(0,10), limits = c(0,1250))
+
+zoopcomp.biom
+
+ggarrange(zoopcomp.abund, zoopcomp.biom, ncol = 1, common.legend = TRUE, legend = "bottom")
+ggsave("zoop_abund_biom_taxa.png", path = "../figs/zoops", width = 16, height = 16, units = "cm", dpi = 300)
+
+
+
+#plotting proportion of taxa by abundance
+zoopabund_prop <- ggplot(data = zoop_abund, aes(x = site, y = totabund, fill = plot.taxon.g)) + 
+        geom_bar(stat = "identity", position = "fill", colour = "black") +
+        theme_classic()+
+        facet_grid(.~location, scales = "free") +
+        scale_fill_manual(
+                values = c("tomato3", "darkorange1", "mediumseagreen", "mediumpurple3","pink3", "goldenrod1", "royalblue3", "grey40"),
+                labels = c("Amphipod", "Barnacle", "Calanoid Copepod", "Cladoceran", "Decapod", "Euphausiid", "Larvacean", "Other")
+        ) +
+        theme(
+                axis.text.x = element_blank(),
+                axis.text.y = element_text(size = 10),
+                axis.title.x = element_blank(),
+                axis.title.y = element_text(size = 11, margin = margin(r = 10)),
+                panel.background = element_rect(fill = "white", colour = "grey50"),
+                strip.background = element_blank(),
+                strip.text = element_text(size = 10),
+                legend.title=element_blank(),
+                legend.text = element_text(size = 9),
+                legend.key.size = unit(0.7, "line"),
+                legend.position = "bottom",
+                plot.margin=unit(c(0.2,0.4,0.2,0.4),"cm")
+        ) +
+        labs(y = expression(Abundance~(ind~m^-3)))  +
+        scale_y_continuous(expand = c(0,0.02))
+zoopabund_prop
+
+
+#plotting proportion of taxa by biomass
+zoopbiom_prop <- ggplot(data = zoop_abund, aes(x = site, y = totbiom, fill = plot.taxon.g)) + 
+        geom_bar(stat = "identity", position = "fill", colour = "black") +
+        theme_classic()+
+        facet_grid(.~location, scales = "free") +
+        scale_fill_manual(
+                values = c("tomato3", "darkorange1", "mediumseagreen", "mediumpurple3","pink3", "goldenrod1", "royalblue3", "grey40"),
+                labels = c("Amphipod", "Barnacle", "Calanoid Copepod", "Cladoceran", "Decapod", "Euphausiid", "Larvacean", "Other")
+        ) +
+        theme(
+                axis.text.x = element_text(size = 10),
+                axis.text.y = element_text(size = 10),
+                axis.title.x = element_blank(),
+                axis.title.y = element_text(size = 11, margin = margin(r = 10)),
+                panel.background = element_rect(fill = "white", colour = "grey50"),
+                strip.background = element_blank(),
+                strip.text = element_blank(),
+                legend.title=element_blank(),
+                legend.text = element_text(size = 9),
+                legend.key.size = unit(0.7, "line"),
+                legend.position = "bottom",
+                plot.margin=unit(c(0.6,0.4,0.2,0.4),"cm")
+        ) +
+        labs(y = expression(Biomass~(ww~-~mg~m^-3))) +
+        scale_y_continuous(expand = c(0,0.02))
+
+zoopbiom_prop
+       
+ggarrange(zoopabund_prop, zoopbiom_prop, ncol = 1, common.legend = TRUE, legend = "bottom")
+ggsave("zoop_abund_biom_taxa_proportions.png", path = "../figs/zoops", width = 16, height = 16, units = "cm", dpi = 300)
+
+```
+
+```{r Temporal}
+# Code to show the abundance and biomass of zoops over time at D07 and J07
+
+temp.abund <- zoopcomp %>%
+        mutate(year = format(date, "%Y")) %>%
+        select(sampleID, date, year, location, site, phylum, plot.taxon.g, totcount, abundance, biomass_wet) %>%
+        filter(site == "D07" | site =="J07", totcount != "NA", phylum != 'NA') %>%
+        mutate(location = factor(location, levels = c("JS", "DI"))) %>% 
+        group_by(year, date, location, site, plot.taxon.g) %>%
+        summarise(totcount = sum(totcount), totabund = sum(abundance), totbiom = sum(biomass_wet))
+
+temp.abund$year <- format(as.factor(temp.abund$year))
+temp.abund$date_m <- format(as.Date(temp.abund$date), "%b-%d")
+temp.abund$date_m1 <- as.Date(temp.abund$date_m, format = "%b-%d")
+
+
+##plot relative abundance for each taxon for the taxa that contribute >5%, fill with taxon
+temp.zoop.relabund <- ggplot(data = temp.abund, aes(x = date_m1, y = totabund)) + 
+  geom_col(aes(fill = plot.taxon.g), position = "fill", width = 3.5, colour = "black") +
+  theme_classic()+
+  facet_grid(vars(year), vars(location), scales = "free") +
+  scale_fill_manual(
+          values = c("tomato3", "darkorange1", "mediumseagreen", "mediumpurple3","pink3", "goldenrod1", "royalblue3", "grey40"),
+                labels = c("Amphipod", "Barnacle", "Calanoid Copepod", "Cladoceran", "Decapod", "Euphausiid", "Larvacean", "Other")
+  ) +
+  theme(
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 12, margin = margin(r=10)),
+    panel.background = element_rect(fill = "white", colour = "grey50"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.title=element_blank(),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.7, "line"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.justification = "center"
+  ) +
+  labs(y = "Proportion of Sample")
+
+temp.zoop.relabund +  scale_x_date(date_breaks ="1 week", date_labels = "%b-%d") + guides(fill = guide_legend(nrow = 2, byrow = TRUE))
+ggsave("zoop_speciescomp_relabund.png", path = "../figs/zoops", width = 14, height = 12, units = "cm", dpi = 300)
+```
+
+```{r Combine My zoops}
+# Combine spat and temp and plot together over time
+zoop_abund <- myzoopcomp %>%
+        mutate(year = format(date, "%Y")) %>%
+        select(date, year, location, site, phylum, plot.taxon.g, totcount, abundance, biomass_wet) %>%
+        filter(totcount != "NA", phylum != 'NA') %>%
+        mutate(location = factor(location, levels = c("JS", "DI"))) %>% 
+        group_by(year, date, location, plot.taxon.g) %>%
+        summarise(totcount = sum(totcount), totabund = sum(abundance), totbiom = sum(biomass_wet))
+
+zoop_abund$year <- format(as.factor(zoop_abund$year))
+zoop_abund$date_m <- format(as.Date(zoop_abund$date), "%b-%d")
+zoop_abund$date_m1 <- as.Date(zoop_abund$date_m, format = "%b-%d")
+
+zoop_samplesize <- zoopcomp %>%
+        mutate(year = format(date, "%Y"), location = factor(location, levels = c("JS", "DI"))) %>%
+        select(sampleID, date, year, location, site, phylum, plot.taxon.g, totcount, abundance, biomass_wet) %>%
+        filter(totcount != "NA", phylum != 'NA')
+
+zoop_samplesize$year <- format(as.factor(zoop_samplesize$year))
+zoop_samplesize$date_m <- format(as.Date(zoop_samplesize$date), "%b-%d")
+zoop_samplesize$date_m1 <- as.Date(zoop_samplesize$date_m, format = "%b-%d")
+
+samplesize <- zoop_samplesize %>%
+  group_by(year, date_m1, location) %>%
+  summarise(count = length(unique(sampleID)))
+
+##plot relative abundance for each taxon for the taxa that contribute >5%, fill with taxon
+zoop_abund_p <- ggplot(data = zoop_abund, aes(x = date_m1, y = totabund)) + 
+  geom_col(aes(fill = plot.taxon.g), position = "fill", width = 1, colour = "black") +
+  theme_classic()+
+  facet_grid(vars(year), vars(location), scales = "free") +
+  scale_fill_manual(
+          values = c("tomato3", "darkorange1", "mediumseagreen", "mediumpurple3","pink3", "goldenrod1", "royalblue3", "grey40"),
+                labels = c("Amphipod", "Barnacle", "Calanoid Copepod", "Cladoceran", "Decapod", "Euphausiid", "Larvacean", "Other")
+  ) +
+  theme(
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 12, margin = margin(r=10)),
+    panel.background = element_rect(fill = "white", colour = "grey50"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.title=element_blank(),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.7, "line"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.justification = "center"
+  ) +
+  labs(y = "Proportion of Sample") +
+  scale_y_continuous(expand = c(0,0.04), breaks = seq(0,1.0,0.2))
+
+zoop_abund_p +  
+  scale_x_date(date_breaks ="1 week", date_labels = "%b-%d") + 
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  geom_text(data = samplesize, aes(x = date_m1, y = 1.07, label = count, fill = NULL), size = 3)
+
+ggsave("../figs/zoops/allzoops_overtime.png", width = 16, height = 12, units = "cm")
+```
+
+```{r Zoop sizes MY DATA}
+# Combine spat and temp and plot SIZES over time
+zoop_size_abund <- allzoopcomp %>%
+        mutate(year = format(date, "%Y")) %>%
+        select(date, year, location, site, sizeclass, totcount, abundance, biomass_wet) %>%
+        filter(totcount != "NA", sizeclass != 'NA') %>%
+        mutate(location = factor(location, levels = c("JS", "DI")), sizeclass = factor(sizeclass, levels = c("<1", "1-2", "2-5", "5-10", ">10"))) %>% 
+        group_by(year, date, location, sizeclass) %>%
+        summarise(totcount = sum(totcount), totabund = sum(abundance), totbiom = sum(biomass_wet))
+
+zoop_size_abund $year <- format(as.factor(zoop_size_abund $year))
+zoop_size_abund $date_m <- format(as.Date(zoop_size_abund $date), "%b-%d")
+zoop_size_abund $date_m1 <- as.Date(zoop_size_abund $date_m, format = "%b-%d")
+
+zoop_samplesize <- zoopcomp %>%
+        mutate(year = format(date, "%Y"), location = factor(location, levels = c("JS", "DI"))) %>%
+        select(sampleID, date, year, location, site, sizeclass, totcount, abundance, biomass_wet) %>%
+        filter(totcount != "NA", sizeclass != 'NA')
+
+zoop_samplesize$year <- format(as.factor(zoop_samplesize$year))
+zoop_samplesize$date_m <- format(as.Date(zoop_samplesize$date), "%b-%d")
+zoop_samplesize$date_m1 <- as.Date(zoop_samplesize$date_m, format = "%b-%d")
+
+samplesize <- zoop_samplesize %>%
+  group_by(year, date_m1, location) %>%
+  summarise(count = length(unique(sampleID)))
+
+##plot relative abundance for each taxon for the taxa that contribute >5%, fill with taxon
+zoop_sizeabund_p <- ggplot(data = zoop_size_abund, aes(x = date_m1, y = totabund)) + 
+  geom_col(aes(fill = sizeclass), position = "fill", width = 1, colour = "black") +
+  theme_classic()+
+  facet_grid(vars(year), vars(location), scales = "free") +
+  scale_fill_manual(values = c("cadetblue1","cadetblue3","cadetblue4","plum4","mediumpurple4")) +
+  theme(
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 12, margin = margin(r=10)),
+    panel.background = element_rect(fill = "white", colour = "grey50"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.title=element_blank(),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.7, "line"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.justification = "center"
+  ) +
+  labs(y = "Proportion of Sample") +
+  scale_y_continuous(expand = c(0,0.04), breaks = seq(0,1.0,0.2))
+
+zoop_sizeabund_p +  
+  scale_x_date(date_breaks ="1 week", date_labels = "%b-%d") + 
+  geom_text(data = samplesize, aes(x = date_m1, y = 1.07, label = count, fill = NULL), size = 3)
+
+ggsave("../figs/zoops/allzoopsizes_overtime.png", width = 16, height = 12, units = "cm")
+```
+
+```{r Combine ALL zoops}
+# Combine spat and temp and plot together over time
+options(scipen = 999)
+zoop_abund <- allzoopcomp %>%
+  mutate(year = format(date, "%Y")) %>%
+  mutate(location = case_when(grepl("D", site) ~ "DI",
+                              grepl("Q", site) ~ "DI",
+                              grepl("J", site) ~ "JS")) %>%
+  select(date, year, location, site, phylum, final_category, plot.taxon, total_count, abundance) %>%
+  mutate(plot.taxon = case_when(plot.taxon %in% c("Fish", "Insect", "Jellyfish") ~ "Other",
+                                TRUE ~ plot.taxon)) %>%
+  filter(total_count != "NA", phylum != 'NA') %>%
+  mutate(location = factor(location, levels = c("JS", "DI"))) %>% 
+  group_by(year, date, location, final_category, plot.taxon) %>%
+  summarise(totcount = sum(total_count), totabund = sum(abundance))
+
+zoop_abund$year <- format(as.factor(zoop_abund$year))
+zoop_abund$date_m <- format(as.Date(zoop_abund$date), "%b-%d")
+zoop_abund$date_m1 <- as.Date(zoop_abund$date_m, format = "%b-%d")
+
+zoop_samplesize <- allzoopcomp %>%
+  mutate(location = case_when(grepl("D", site) ~ "DI",
+                              grepl("Q", site) ~ "DI",
+                              grepl("J", site) ~ "JS")) %>%
+        mutate(year = format(date, "%Y"), location = factor(location, levels = c("JS", "DI"))) %>%
+        select(sample_id, date, year, location, site, phylum, plot.taxon, total_count, abundance) %>%
+        filter(total_count != "NA", phylum != 'NA')
+
+zoop_samplesize$year <- format(as.factor(zoop_samplesize$year))
+zoop_samplesize$date_m <- format(as.Date(zoop_samplesize$date), "%b-%d")
+zoop_samplesize$date_m1 <- as.Date(zoop_samplesize$date_m, format = "%b-%d")
+
+samplesize <- zoop_samplesize %>%
+  group_by(year, date_m1, location) %>%
+  summarise(count = length(unique(sample_id)))
+
+##plot relative abundance for each taxon for the taxa that contribute >5%, fill with taxon
+zoop_abund_p <- ggplot(data = zoop_abund, aes(x = date_m1, y = totcount)) + 
+  geom_col(aes(fill = plot.taxon), position = "fill", width = 1, colour = "black", size = 0.3) +
+  theme_classic()+
+  facet_grid(vars(year), vars(location), scales = "free") +
+  scale_fill_manual(
+          values = c("tomato3", "darkorange1", "mediumpurple3", "mediumseagreen", "pink3", "goldenrod1", "royalblue3", "grey40"),
+                labels = c("Amphipod", "Barnacle", "Cladoceran", "Copepod", "Decapod", "Euphausiid", "Larvacean", "Other")
+  ) +
+  theme(
+    axis.text.x = element_text(size = 10, angle = 90, vjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 12, margin = margin(r=10)),
+    panel.background = element_rect(fill = "white", colour = "grey50"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.title=element_blank(),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.7, "line"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.justification = "center"
+  ) +
+  labs(y = "Proportion of Sample") +
+  scale_y_continuous(expand = c(0,0.04), breaks = seq(0,1.0,0.2))
+
+zoop_abund_p +  
+  scale_x_date(date_breaks ="1 week", date_labels = "%b-%d", limits = c(as.Date(c("2022-05-01", "2022-07-10")))) + 
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  geom_text(data = samplesize, aes(x = date_m1, y = 1.07, label = count, fill = NULL), size = 2.2)
+
+ggsave("../figs/zoops/allzoops_overtime.png", width = 18, height = 14, units = "cm")
+```
+
+
+```{r Zoop sizes ALL DATA}
+# Combine spat and temp and plot SIZES over time
+zoop_size_abund <- allzoopcomp %>%
+        mutate(year = format(date, "%Y")) %>%
+  mutate(location = case_when(grepl("D", site) ~ "DI",
+                              grepl("Q", site) ~ "DI",
+                              grepl("J", site) ~ "JS")) %>%
+        select(date, year, location, site, size_class, total_count, abundance) %>%
+        filter(total_count != "NA", size_class != 'NA') %>%
+  mutate(size_class = case_when(size_class %in% c("<1", "1-2", "<2") ~ "<2",
+                                TRUE ~ size_class)) %>%
+        mutate(location = factor(location, levels = c("JS", "DI")), size_class = factor(size_class, levels = c("<2", "2-5", "5-10", ">10"))) %>% 
+        group_by(year, date, location, size_class) %>%
+        summarise(totcount = sum(total_count), totabund = sum(abundance))
+
+zoop_size_abund $year <- format(as.factor(zoop_size_abund $year))
+zoop_size_abund $date_m <- format(as.Date(zoop_size_abund $date), "%b-%d")
+zoop_size_abund $date_m1 <- as.Date(zoop_size_abund $date_m, format = "%b-%d")
+
+zoop_samplesize <- allzoopcomp %>%
+  mutate(location = case_when(grepl("D", site) ~ "DI",
+                              grepl("Q", site) ~ "DI",
+                              grepl("J", site) ~ "JS")) %>%
+        mutate(year = format(date, "%Y"), location = factor(location, levels = c("JS", "DI"))) %>%
+        select(sample_id, date, year, location, site, size_class, total_count, abundance) %>%
+        filter(total_count != "NA", size_class != 'NA')
+
+zoop_samplesize$year <- format(as.factor(zoop_samplesize$year))
+zoop_samplesize$date_m <- format(as.Date(zoop_samplesize$date), "%b-%d")
+zoop_samplesize$date_m1 <- as.Date(zoop_samplesize$date_m, format = "%b-%d")
+
+samplesize <- zoop_samplesize %>%
+  group_by(year, date_m1, location) %>%
+  summarise(count = length(unique(sample_id)))
+
+##plot relative abundance for each taxon for the taxa that contribute >5%, fill with taxon
+zoop_sizeabund_p <- ggplot(data = zoop_size_abund, aes(x = date_m1, y = totcount)) + 
+  geom_col(aes(fill = size_class), position = "fill", width = 1, size = 0.3, colour = "black") +
+  theme_classic()+
+  facet_grid(vars(year), vars(location), scales = "free") +
+  scale_fill_manual(values = c("cadetblue1","cadetblue4","plum4","mediumpurple4")) +
+  theme(
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 12, margin = margin(r=10)),
+    panel.background = element_rect(fill = "white", colour = "grey50"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.title=element_blank(),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.7, "line"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.justification = "center"
+  ) +
+  labs(y = "Proportion of Sample") +
+  scale_y_continuous(expand = c(0,0.04), breaks = seq(0,1.0,0.2))
+
+zoop_sizeabund_p +  
+  scale_x_date(date_breaks ="1 week", date_labels = "%b-%d", limits = c(as.Date(c("2022-05-01", "2022-07-10")))) + 
+  geom_text(data = samplesize, aes(x = date_m1, y = 1.07, label = count, fill = NULL), size = 2.5)
+
+ggsave("../figs/zoops/allzoopsizes_overtime.png", width = 20, height = 12, units = "cm")
+```
+
