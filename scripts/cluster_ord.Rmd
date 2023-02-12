@@ -176,7 +176,7 @@ metadata <- merge(metadata1, clusdata1[,c("ID", "tperiod", "cluster")], by = "ID
                           grepl("Peak", tperiod) ~ "Peak",
                           grepl("Late", tperiod) ~ "Late")) %>%
   select(1:2, 29, 5, 3:4, 6:28) 
-#write_csv(metadata, "../processed/metadata_with_clusters.csv")
+write_csv(metadata, "../processed/metadata_with_clusters.csv") # save this version of metadata to use for species comp figures
 
 ```
 
