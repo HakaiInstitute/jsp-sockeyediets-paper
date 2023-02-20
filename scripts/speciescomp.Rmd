@@ -15,6 +15,8 @@ library(ggpubr)
 library(RColorBrewer)
 library(scales)
 
+
+# original code importing all data, but just use temporal to address reviewer comments
 spat <- read_csv(here::here("raw", "spatial.csv")) 
 temp <- read_csv(here::here("raw", "Temporal.csv"))
 
@@ -23,6 +25,7 @@ spat <- spat %>%
   select(ufn, date, year, month, day, location, region, site, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
   mutate(corrected.prey.weight = as.numeric(corrected.prey.weight))
 
+  
 temp <- temp %>%
  select(ufn, date, year, month, day, location, region, site, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
   mutate(month = as.numeric(month), day = as.numeric(day), fishweight = as.numeric(fishweight), length.avg = as.numeric(length.avg))
@@ -32,18 +35,17 @@ dat <- full_join(spat, temp)
 meta <- read_csv(here("processed", "metadata_with_clusters.csv"))
 
 # Plottable version of the data        
-diet_all <- dat %>%
+tempdat <- temp %>%
   unite(ID, c(site, ufn), remove = FALSE)
 
-diet_clusters <- left_join(diet_all, meta[,c("ID", "tperiod", "time", "ID3", "cluster")], by = "ID") %>%
-  filter(cluster != "D") # removing outliers from cluster analysis
+diet_clusters <- left_join(tempdat, meta[,c("ID", "tperiod", "time", "ID3", "cluster")], by = "ID") 
 
 #write_csv(diet_clusters, "../processed/alldiet_wclusters.csv")
 ```
 
-```{r All Data}
+```{r Sepcies Comp by Cluster}
 # calculating the proportion of each diet item in each stomach and then averaging across stomachs in each cluster
-dietcomp_all <- diet_clusters %>%
+dietcomp_temp <- diet_clusters %>%
         select(ufn, site, cluster, plot.taxon.g, corrected.prey.weight) %>%
         filter(corrected.prey.weight != "NA", !plot.taxon.g %in% c('Nauplius', 'Digested', 'Parasite'), !is.na(plot.taxon.g)) %>% 
         complete(plot.taxon.g, nesting(ufn, site, cluster), fill = list(corrected.prey.weight = 0)) %>%
@@ -56,12 +58,13 @@ dietcomp_all <- diet_clusters %>%
         group_by(cluster) %>%
         mutate(n = length(unique(ufn)), mean_tot_weight = mean(tot_stom_biom)) %>%
         select(cluster, n, mean_tot_weight, plot.taxon.g, meanprop, sdprop) %>%
+        filter(n > 2) %>%
        distinct() 
   
-samplesizes <- data.frame(x=c("A", "B", "C"), y=c(1.03, 1.03, 1.03), z=c(173, 69, 41))
+samplesizes <- data.frame(x=c("A1", "A2", "B1", "B2", "B3"), y=c(1.05, 1.05, 1.05, 1.05, 1.05), z=c(112, 6, 30, 23, 16))
         
-# plotting averages per site
-dietcomp_cluster_plot <- ggplot(data = dietcomp_all, aes(x = cluster, y = meanprop)) + 
+# plotting proportions per cluster
+dietcomp_cluster_plot <- ggplot(data = dietcomp_temp, aes(x = cluster, y = meanprop)) + 
         geom_bar(aes(fill = plot.taxon.g), position = "fill", stat = "identity", colour = "black") +
         geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
         theme_classic()+
@@ -70,73 +73,25 @@ dietcomp_cluster_plot <- ggplot(data = dietcomp_all, aes(x = cluster, y = meanpr
                 labels = c("Amphipod   ", "Barnacle   ", "Calanoid Copepod   ", "Cladoceran   ", "Decapod   ", "Euphausiid   ", "Larvacean   ", "Other   ") 
         ) +
         theme(
-                axis.text.x = element_text(size = 10),
+                axis.text.x = element_blank(),
                 axis.text.y = element_text(size = 10),
                 axis.title.x = element_blank(),
                 axis.title.y = element_text(size = 11, margin = margin(r=10)),
                 panel.background = element_rect(fill = "white", colour = "grey50"),
                 strip.background = element_blank(),
                 strip.text = element_blank(),
-                legend.title=element_blank(),
+                legend.title=element_text(size = 11),
                 legend.text = element_text(size = 10),
                 legend.key.size = unit(0.7, "line"),
-                legend.position = "bottom",
-                legend.justification = "center",
+                legend.position = "right",
+                legend.justification = "left",
                 plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm")) +
         labs(y = "Average Proportion of Diet") +
-        scale_y_continuous(expand = c(0,0.02))
-dietcomp_cluster_plot <- dietcomp_cluster_plot + guides(fill = guide_legend(nrow = 4, byrow = TRUE))
+        scale_y_continuous(limits = c(0, 1.07), breaks = seq(0, 1, by = 0.25), expand = c(0,0.02))
+dietcomp_cluster_plot <- dietcomp_cluster_plot + guides(fill = guide_legend(ncol = 1, byrow = TRUE, title = "Diet Taxa"))
 dietcomp_cluster_plot
 
-ggsave("../figs/speciescomp/dietcomp_biomass_bycluster.png", width = 13, height = 16, units = "cm", dpi = 300)
-
-
-# Now with more detailed taxonomy
-dietcomp_all_det <- diet_clusters %>%
-        select(ufn, site, cluster, plot.taxon, corrected.prey.weight) %>%
-        filter(corrected.prey.weight != "NA", !plot.taxon %in% c('Nauplius', 'Digested', 'Parasite'), !is.na(plot.taxon)) %>% 
-        mutate(plot.taxon = case_when(plot.taxon == "Euphausiidae" ~ "Euphausiid",
-                                      TRUE ~ plot.taxon)) %>%
-        complete(plot.taxon, nesting(ufn, site, cluster), fill = list(corrected.prey.weight = 0)) %>%
-        group_by(ufn, plot.taxon, cluster) %>%
-        summarise(biomass = sum(corrected.prey.weight)) %>%
-        group_by(cluster, ufn) %>%
-        mutate(tot_stom_biom = sum(biomass), ind_prop = biomass/tot_stom_biom) %>%
-        group_by(cluster, plot.taxon) %>%
-        mutate(meanprop = mean(ind_prop), sdprop = sd(ind_prop)) %>%
-        group_by(cluster) %>%
-        mutate(n = length(unique(ufn)), mean_tot_weight = mean(tot_stom_biom)) %>%
-        select(cluster, n, mean_tot_weight, plot.taxon, meanprop, sdprop) %>%
-        distinct() %>%
-        filter(meanprop > 0.05)
-  
-det_cols <- c("#89C5DA", "#DA5724", "#74D944", "#CE50CA", "#3F4921", "#8569D5", "#D3D93E", "#6DDE88", 
- "#508578", "#673770",  "#CD9BCD", "#D7C1B1", "#AD6F3B" )  
-      
-# plotting averages per site
-dietcomp_cluster_plot_detail <- ggplot(data = dietcomp_all_det, aes(x = cluster, y = meanprop, fill = plot.taxon)) + 
-        geom_bar(position = "fill", stat = "identity", colour = "black") +
-        theme_classic()+
-        scale_fill_manual(values = det_cols) +
-        theme(
-                axis.text.x = element_text(size = 10),
-                axis.text.y = element_text(size = 10),
-                axis.title.x = element_blank(),
-                axis.title.y = element_text(size = 11, margin = margin(r=10)),
-                panel.background = element_rect(fill = "white", colour = "grey50"),
-                strip.background = element_blank(),
-                strip.text = element_blank(),
-                legend.title=element_blank(),
-                legend.text = element_text(size = 10),
-                legend.key.size = unit(0.7, "line"),
-                legend.position = "bottom",
-                legend.justification = "center"
-        ) +
-        labs(y = "Average Proportion of Diet") +
-        scale_y_continuous(expand = c(0,0.02))
-dietcomp_cluster_plot_detail
-ggsave("../figs/speciescomp/dietcomp_biomass_bycluster_detailed.png", width = 15, height = 10, units = "cm", dpi = 300)
-
+ggsave("../figs/speciescomp/dietcomp_biomass_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
 
 
 ```
@@ -159,57 +114,38 @@ alldiet_sizep <- diet_clusters %>%
         group_by(cluster) %>%
         mutate(n = length(unique(ufn)), mean_tot_weight = mean(tot_stom_biom)) %>%
         select(cluster, n, mean_tot_weight, size, meanprop, sdprop) %>%
-       distinct() 
+        filter(n > 2) %>%     
+        distinct() 
 
-# by abundance
-sizes_p <- diet_clusters %>%
-  select(ufn, location, site, cluster, count, size) %>%
-  filter(size != 'NA') %>%
-  mutate(location = factor(location, levels = c("JS", "DI")), 
-         size = factor(size, levels = c("<1", "1-2", "2-5", "5-10", ">10"))) %>%
-  complete(size, nesting(ufn, location, site), fill = list(count = 0)) %>%
-  group_by(location, site, ufn, size) %>%
-  summarise(count = sum(count)) %>%
-  group_by(site, ufn) %>%
-  mutate(tot_fish_count = sum(count), ind_prop = count/tot_fish_count) %>%
-  group_by(location, size) %>%
-  mutate(meanprop = mean(ind_prop), sdprop = sd(ind_prop)) %>%
-  select(location, size, meanprop, sdprop) %>%
-  distinct()
+samplesizes <- data.frame(x=c("A1", "A2", "B1", "B2", "B3"), y=c(1.03, 1.03, 1.03, 1.03, 1.03), z=c(112, 6, 30, 23, 16))
 
-samplesizes <- data.frame(x=c("A", "B", "C"), y=c(1.03, 1.03, 1.03), z=c(173, 69, 41))
 
-dietcomp_cluster_plot <- ggplot(data = dietcomp_all, aes(x = cluster, y = meanprop)) + 
-        geom_bar(aes(fill = plot.taxon.g), position = "fill", stat = "identity", colour = "black") +
-        geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
-        theme_classic()
-  
 # plotting averages per site
 sizes_plot <- ggplot(data = alldiet_sizep, aes(x = cluster, y = meanprop)) + 
         geom_bar(aes(fill = size), position = "fill", stat = "identity", colour = "black") +
-        geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
+        #geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
         theme_classic()+
         scale_fill_manual(values = c("cadetblue1","cadetblue3","cadetblue4","plum4","mediumpurple4")) +
         theme(
-                axis.text.x = element_text(size = 10),
+                axis.text.x = element_blank(),
                 axis.text.y = element_text(size = 10),
                 axis.title.x = element_blank(),
-                axis.title.y = element_text(size = 12, margin = margin(r = 10)),
+                axis.title.y = element_text(size = 11, margin = margin(r = 10)),
                 panel.background = element_rect(fill = "white", colour = "grey50"),
                 strip.background = element_blank(),
-                strip.text = element_text(size = 12),
-                legend.title = element_text(size = 12),
+                legend.title = element_text(size = 11),
                 legend.text = element_text(size = 10),
-                legend.position = "bottom",
+                legend.position = "right",
+                legend.justification = "left",
                 legend.key.size = unit(0.7, "line"),
                 plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm")) +
         labs(y = "Average proportion of diet") +
-        scale_y_continuous(expand = c(0,0.02))
-sizes_plot <- sizes_plot + guides(fill = guide_legend(nrow = 2, byrow = TRUE))
+        scale_y_continuous(breaks = seq(0, 1, by = 0.25), expand = c(0,0.02))
+sizes_plot <- sizes_plot + guides(fill = guide_legend(ncol = 1, byrow = TRUE, title = "Size (mm)"))
 sizes_plot
 
 
-ggsave("../figs/sizes/dietcomp_sizes.png", width = 12, height = 15, units = "cm", dpi = 300)
+ggsave("../figs/sizes/dietcomp_sizes_bycluster_temp.png", width = 16, height = 12, units = "cm", dpi = 300)
 
 
 ```
@@ -225,17 +161,18 @@ timing_comp <- diet_clusters %>%
         distinct() %>%
         group_by(cluster) %>%
         mutate(totcount = sum(n)) %>%
-        mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late", "JS_Early", "JS_Peak", "JS_Late")))
-   
-  
-samplesizes <- data.frame(x=c("A", "B", "C"), y=c(1.03, 1.03, 1.03), z=c(173, 69, 41))
+        mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late", "JS_Early", "JS_Peak", "JS_Late"))) %>%
+  filter(!cluster %in% c("C", "D", "E"), !is.na(cluster))
+ 
+
+samplesizes <- data.frame(x=c("A1", "A2", "B1", "B2", "B3"), y=c(1.03, 1.03, 1.03, 1.03, 1.03), z=c(112, 6, 30, 23, 16))
 
 ID_col <- c("DI_Early" = "lightsalmon", "DI_Peak" = "orangered1", "DI_Late" = "firebrick", "JS_Early" = "skyblue", "JS_Peak" = "royalblue2", "JS_Late" = "darkblue")
         
 # plotting averages per site
 timing_comp_clusterplot <- ggplot(data = timing_comp, aes(x = cluster, y = n)) + 
         geom_bar(aes(fill = tperiod), position = "fill", stat = "identity", colour = "black") +
-        geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
+        #geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
         theme_classic()+
         theme(
                 axis.text.x = element_text(size = 10),
@@ -245,19 +182,19 @@ timing_comp_clusterplot <- ggplot(data = timing_comp, aes(x = cluster, y = n)) +
                 panel.background = element_rect(fill = "white", colour = "grey50"),
                 strip.background = element_blank(),
                 strip.text = element_blank(),
-                legend.title=element_blank(),
+                legend.title=element_text(size = 11),
                 legend.text = element_text(size = 10),
                 legend.key.size = unit(0.7, "line"),
-                legend.position = "bottom",
-                legend.justification = "center",
-                plot.margin = unit(c(0.5,0.5,0.2,0.2), "cm")) +
+                legend.position = "right",
+                legend.justification = "left",
+                plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm")) +
         labs(y = "Proportion of Sockeye") +
         scale_y_continuous(expand = c(0,0.02)) +
         scale_fill_manual(values = ID_col)
-timing_comp_clusterplot <- timing_comp_clusterplot + guides(fill = guide_legend(nrow = 2, byrow = TRUE))
+timing_comp_clusterplot <- timing_comp_clusterplot + guides(fill = guide_legend(ncol = 1, byrow = TRUE, title = "Migration Timing"))
 timing_comp_clusterplot
 
-ggsave("../figs/NMDS/migration_timing_bycluster.png", width = 13, height = 16, units = "cm", dpi = 300)
+ggsave("../figs/speciescomp/temp_migration_timing_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
 
 
 # Now for boxplots
@@ -286,113 +223,59 @@ ggplot(timing_IQR_2, aes(x = yday, y = cluster, fill = cluster)) +
   theme_bw() +
   scale_y_discrete(limits = rev)
 
-ggsave("../figs/NMDS/migrationtiming_boxplots_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
+ggsave("../figs/speciescomp/temp_migrationtiming_boxplots_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
 ```
 
 
 ```{r}
 # Combining species comp and size comp into single figure
-ggarrange(dietcomp_cluster_plot, sizes_plot, timing_comp_clusterplot, ncol = 3, common.legend = FALSE, legend = "bottom", labels = c("i", "ii", "iii"), label.x = 0.2, label.y = 1.01, nrow = 1, align = "h")
-ggsave("../figs/speciescomp/dietcomp_timing_bybiomcluster.png", width = 24, height = 12, units = "cm", dpi = 300)
+ggarrange(dietcomp_cluster_plot, sizes_plot, timing_comp_clusterplot, ncol = 1, common.legend = FALSE, legend = "right", labels = c("i", "ii", "iii"), label.x = 0.1, label.y = 1.05, nrow = 3, align = "v") +
+  theme(plot.margin = margin(0.5,0.2,0.2,0.2, "cm"))
+ggsave("../figs/speciescomp/temp_clustercomp.png", width = 20, height = 22, units = "cm", dpi = 300)
 ```
 
 ```{r}
 cluster_stocks <- meta %>%
   select(ufn, cluster, stock_1) %>%
-  mutate(stock_1 = case_when(stock_1 %in% c("Horsefly", "Mitchell", "Quesnel_Horsef", "Quesnel_Mitche") ~ "Quesnel-Horsefly-Mitchell",
-                             stock_1 == "Gates_Cr" ~ "Gates",
-                             stock_1 == "L_Adams" ~ "Lower Adams",
-                             stock_1 == "L_Shuswap" ~ "Lower Shuswap",
-                             stock_1 == "MiddleShuswap" ~ "Middle Shuswap",
+  mutate(stock_1 = case_when(stock_1 %in% c("Horsefly", "Mitchell", "Quesnel_Horsef", "Quesnel_Mitche", "Quesnel_Decept", "Wasko_Cr", "Blue_Lead_Ck") ~ "Quesnel",
+                             stock_1 == "Birkenhead" ~ "Birkenhead_Big_Silver",
+                             stock_1 %in% c("Gates_Cr", "Nadina", "Bowron") ~ "Nadina_Gates_Bowron_Nahatlatch",
+                             stock_1 %in% c("L_Adams", "L_Shuswap", "MiddleShuswap", "Little", "Portage_Cr") ~ "Late_Shuswap_Portage",
+                             stock_1 %in% c("Paula", "Narrows", "Blackwater", "Hudson_Bay") ~ "Early_Stuart",
+                             stock_1 %in% c("Scotch", "Seymour", "Eagle_L") ~ "Early_Thompson",
+                             stock_1 %in% c("Stellako", "Tachie", "Pinchi_Cr", "Middle") ~ "Late_Stuart_Stellako",
+                             stock_1 == "Thompson_N" ~ "Raft_North_Thompson",
+                             stock_1 %in% c("Weaver", "Cultus_Lake") ~ "Weaver_Cultus",
+                             stock_1 %in% c("Chilko", "Chilko-North", "Chilko_south") ~ "Chilko",
                              TRUE ~ stock_1)) %>%
   mutate(stock_1 = replace_na(stock_1, "Unknown")) %>%
   mutate(tot_n = length(unique(ufn))) %>%
   group_by(stock_1) %>%
   mutate(stock_n = length(unique(ufn)), run_prop = stock_n/tot_n) %>%
-  filter(cluster != "D", run_prop > 0.01) %>%
+  filter(!cluster %in% c("C", "D", "E"), run_prop > 0.01) %>%
   group_by(cluster, stock_1) %>%
   summarise(n = length(unique(ufn))) %>%
-  mutate(stock_1 = factor(stock_1, levels = c("Birkenhead", "Chilko", "Gates", "Lower Adams", "Lower Shuswap", "Middle Shuswap", "Paula", "Pitt", "Quesnel-Horsefly-Mitchell", "Scotch", "Seymour", "Stellako", "Tachie", "Weaver", "Unknown")))
+  mutate(stock_1 = factor(stock_1, levels = c("Birkenhead_Big_Silver", "Chilko", "Early_Stuart", "Early_Thompson", "Late_Shuswap_Portage", "Late_Stuart_Stellako", "Pitt", "Quesnel",   "Weaver_Cultus", "Unknown")))
   
-col = c("gold", "darkorchid", "darkorange3", "lightskyblue", "red3", "navajowhite3", "springgreen4", "pink3", "dodgerblue4", "coral2", "mediumvioletred", "darkolivegreen2", "brown4", "mediumseagreen", "grey40")
+col = c("gold", "darkorchid", "darkolivegreen2", "lightskyblue", "red3", "navajowhite3", "springgreen4", "pink3", "dodgerblue4", "grey40")
+samplesizes <- data.frame(x=c("A1", "A2", "B1", "B2", "B3"), y=c(1.03, 1.03, 1.03, 1.03, 1.03), z=c(112, 6, 30, 23, 16))
 
-samplesizes <- data.frame(x=c("A", "B", "C"), y=c(1.02, 1.02, 1.02), z=c(173, 69, 41))
 
-ggplot(cluster_stocks, aes(x = cluster, y = n, fill = stock_1)) +
-  geom_bar(stat = "identity", position = "fill", colour = "black") +
-  #geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
+stock_comp <- ggplot(cluster_stocks, aes(x = cluster, y = n)) +
+  geom_bar(stat = "identity", position = "fill", colour = "black", aes(fill = stock_1)) +
+  geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
   theme_bw() +
   theme(legend.title = element_blank(),
-        legend.key.size = unit(0.8, "line")) +
-  labs(y = "% of Diet Cluster", x = "Diet Cluster") +
+        legend.key.size = unit(0.8, "line"),
+        axis.title.x = element_blank()) +
+  labs(y = "% of Diet Cluster") +
   scale_fill_manual(values = col) +
   scale_y_continuous(expand = c(0,0.01))
+stock_comp
+
 ggsave("../figs/GSI/stocks_by_cluster.png", width = 14, height = 10, units = "cm")
 
 ```
-
-
-```{r}
-
-# Plotting size comp by forklength
-sizes_by_FL <- dat %>%
-  select(ufn, location, forklength, count, size) %>%
-  filter(size != 'NA') %>%
-  mutate(fish_size = case_when(forklength < 97 ~ "79-96",
-                               forklength > 114 ~ "115-132",
-                               TRUE ~ "97-114")) %>%
-  mutate(location = factor(location, levels = c("JS", "DI")), 
-         size = factor(size, levels = c("<1", "1-2", "2-5", "5-10", ">10")),
-         fish_size = factor(fish_size, levels = c("79-96", "97-114", "115-132"))) %>%
-  complete(size, nesting(ufn, location, fish_size), fill = list(count = 0)) %>%
-  group_by(location, fish_size, ufn, size) %>%
-  summarise(count = sum(count)) %>%
-  group_by(location, fish_size, ufn) %>%
-  mutate(tot_fish_count = sum(count), ind_prop = count/tot_fish_count) %>%
-  group_by(location, fish_size, size) %>%
-  mutate(meanprop = mean(ind_prop), sdprop = sd(ind_prop)) %>%
-  select(location, fish_size, size, meanprop, sdprop) %>%
-  distinct()
-
-# plotting averages per site
-sizes_by_FL_plot <- ggplot(data = sizes_by_FL, aes(x = fish_size, y = meanprop, fill = size)) + 
-        geom_bar(position = "fill", stat = "identity", colour = "black") +
-  facet_wrap(~location) +      
-  theme_classic()+
-        scale_fill_manual(values = c("cadetblue1","cadetblue3","cadetblue4","plum4","mediumpurple4")) +
-        theme(
-                axis.text.x = element_text(size = 10),
-                axis.text.y = element_text(size = 10),
-                axis.title.x = element_text(size = 12),
-                axis.title.y = element_text(size = 12, margin = margin(r = 10)),
-                panel.background = element_rect(fill = "white", colour = "grey50"),
-                strip.background = element_blank(),
-                strip.text = element_text(size = 12),
-                legend.title = element_text(size = 12),
-                legend.text = element_text(size = 10),
-                legend.position = "bottom",
-                legend.key.size = unit(0.7, "line")
-        ) +
-        labs(y = "Average proportion of diet", x = "Fork Length (mm)") +
-        scale_y_continuous(expand = c(0,0.01))
-sizes_by_FL_plot
-ggsave("../figs/sizes/alldat_preysize_byFL.png", width = 14, height = 10, units = "cm", dpi = 300)
-
-
-sizes_by_FL2 <- dat %>%
-  select(ufn, location, forklength, size) %>%
-  filter(size != 'NA') %>%
-  distinct() %>%
-  mutate(location = factor(location, levels = c("JS", "DI")), 
-         size = factor(size, levels = c("<1", "1-2", "2-5", "5-10", ">10")))
-
-ggplot(sizes_by_FL2, aes(x = size, y = forklength)) +
-  geom_boxplot() +
-  theme_bw()
-
-```
-
-
 
 
 ```{r GFI}

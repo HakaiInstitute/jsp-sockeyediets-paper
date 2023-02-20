@@ -37,12 +37,10 @@ spat <- spat %>%
   mutate(corrected.prey.weight = as.numeric(corrected.prey.weight))
 
 temp <- temp %>%
-  filter(ufn != "U238") %>%
  select(ufn, date, year, month, day, location, region, site, species.no, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon.d, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
   mutate(month = as.numeric(month), day = as.numeric(day), fishweight = as.numeric(fishweight), length.avg = as.numeric(length.avg))
 
 dat <- full_join(spat, temp) %>%
-  filter(!ufn %in% c("U4767", "U824", "U295")) %>% # removing outliers with ~100% dissimilarity from other samples (by abundance). There are still some outliers but these 3 in particular prevent us from being able to identify meaningful clusters because they are so much more different 
   mutate(plot.taxon = case_when(plot.taxon == "Euphausiidae" ~ "Euphausiid",
                                 TRUE ~ plot.taxon))
 ```
@@ -94,7 +92,7 @@ clusdata[is.na(clusdata)] <- 0
 # as part of the data prep for Bray-Curtis
 clusdata <- data.frame(clusdata)
 rownames(clusdata) = clusdata[,1]
-bc_dat <- clusdata[7:51]
+bc_dat <- clusdata[6:51]
 
 ```
 
@@ -129,13 +127,14 @@ fviz_nbclust(mydata, FUN = hcut, method = "wss")
 fviz_nbclust(mydata, FUN = hcut, method = "silhouette")
 
 #Gap statistic method which shows k = 20 (but that's also the kmax used)
-gap_stat <- clusGap(mydata, FUN = hcut, nstart = 25, K.max = 20, B = 500)
-fviz_gap_stat(gap_stat)
+#gap_stat <- clusGap(mydata, FUN = hcut, nstart = 25, K.max = 20, B = 500)
+#fviz_gap_stat(gap_stat)
 
 # NbClust using 30 indices and the majority rule: suggests 2 clusters. Move ahead with this statistic. 2 Clusters, but visual inspection of dendrogram shows that there are 3 sub clusters in the DI cluster (excluding outliers) that roughly correspond to migration timing. Use k = 8 to identify subclusters and plot in NMDS
 NbClust(data = mydata, diss = NULL, distance = "euclidean",
         min.nc = 2, max.nc = 20, method = "average")
  
+
 # plotting the Bray-Curtis dissimilarity, I made it as a dendrogram to flatten out the bottom
 den_clust = as.dendrogram(bc_clust)
 plot(den_clust)
@@ -153,16 +152,20 @@ plot(den_clust, ylab = "Bray-Curtis Dissimilarity", ylim = c(0,1))
 # Assign cluster names to each cluster number
 clusdata1 <- clusdata %>%
   mutate(cluster = sub_grp) %>%
-  mutate(cluster = case_when(cluster == 1 ~ "E", # outliers
-                             cluster == 2 ~ "A", # JS
-                             cluster == 3 ~ "B", # DI Late
-                             cluster == 4 ~ "C", # DI Mix
-                             cluster == 5 ~ "D", # DI Early,
-                             cluster == 6 ~ "F", # outliers,
-                             cluster == 7 ~ "G", # outliers,
-                             cluster == 8 ~ "H")) %>% # outliers
+  mutate(cluster = case_when(cluster == 1 ~ "C", # outliers
+                             cluster == 2 ~ "A1", # JS
+                             cluster == 3 ~ "B3", # DI Late
+                             cluster == 4 ~ "B1", # DI Mix
+                             cluster == 5 ~ "B2", # DI Early,
+                             cluster == 6 ~ "A2", # outliers,
+                             cluster == 7 ~ "D", # outliers,
+                             cluster == 8 ~ "E")) %>% # outliers
   add_count(cluster) %>%
-  select(1:4, 52:53, 5:51) 
+  select(1:4, 52:53, 5:51)
+  
+
+
+   
 
 #edit metadata to only contain same ID's as in the fish data
 metadata1 <- semi_join(meta, clusdata1, by = "ID")
@@ -219,10 +222,14 @@ p <- ggplot() +
         axis.ticks.y = element_blank()) +
   ylab("Distance") +  # flipped x and y coordinates for aesthetic reasons
   #geom_hline(yintercept = 0.89) + # see SIMPER below - the dissimilarity between clusters to get 5 clusters is 87.37% so add vertical line to show 5 groups
-  annotate("text", x = 15, y = 0.93, label = "B", hjust = 0, vjust = 0) + # only showing clusters A and B and not the outliers
-  annotate("text", x = 90, y = 0.93, label = "A", hjust = 0, vjust = 0) 
+  annotate("text", x = 150, y = 0.8, label = "A1", hjust = 0, vjust = 0) + # only showing text for main clusters not the outliers, not sure if this makes things more confusing?
+  annotate("text", x = 70, y = 0.8, label = "A2", hjust = 0, vjust = 0) +
+  annotate("text", x = 50, y = 0.8, label = "B1", hjust = 0, vjust = 0) +
+  annotate("text", x = 20, y = 0.8, label = "B2", hjust = 0, vjust = 0) +
+  annotate("text", x = 10, y = 0.8, label = "B3", hjust = 0, vjust = 0) 
+   
  p
- #ggsave("../figs/NMDS/relbiom_dend_migrationtime_temp.png", width = 20, height = 20, units = "cm")
+ ggsave("../figs/NMDS/relbiom_dend_migrationtime_temp.png", width = 20, height = 20, units = "cm")
 
 
 ```
@@ -236,32 +243,78 @@ p <- ggplot() +
 clusdata2 <- clusdata1 %>%
   filter(n > 2)
 rownames(clusdata2) = clusdata2[,1]
-bc_dat <- clusdata2[8:53]
+bc_dat2 <- clusdata2[8:53]
 
 #edit metadata to only contain same ID's as in the fish data
-metadata <- semi_join(metadata, clusdata2, by = "ID")
+metadata2 <- semi_join(metadata, clusdata2, by = "ID") %>%
+  mutate(stock_1 = replace_na(stock_1, "Unknown"))
+  #add_count(stock_1) %>% #If you only want to compare stocks with >2 samples add the following code in and use clusdata3 instead
+  #filter(n>2)
+
+#clusdata3 <- semi_join(clusdata2, metadata, by = "ID")
+#rownames(clusdata3) = clusdata3[,1]
+#bc_dat3 <- clusdata3[8:53]
+  
 
 #create the BC dissimilarity matrix
-bc_dist <- vegdist(bc_dat, method = "bray")
+bc_dist <- vegdist(bc_dat2, method = "bray")
 
-detach(metadata)
-attach(metadata)
+detach(metadata2) # will read as error the first time if metadata has not been previously attached - ok
+attach(metadata2)
 
-#anosim using our dissimilarity matrix and our grouping variable. Can replace grouping variable with others (e.g. year, location, cluster, etc). Compares within and between group similarity. Significant difference between groups when between group dissimilarity is higher than within group (R score closer to 1)
-spat.ano <- anosim(bc_dist, cluster)
+#anosim using our dissimilarity matrix and our grouping variable. Can replace grouping variable with others (e.g. year, location, time period, cluster, etc). Compares within and between group similarity. Significant difference between groups when between group dissimilarity is higher than within group (R score closer to 1)
+spat.ano <- anosim(bc_dist, year)
 summary(spat.ano)
 plot(spat.ano)
 
 
 #simper analysis using the BC dissimilarity matrix and grouping variable. Produces table with average contribution to dissimilary, avg abundances in groups a and b, and the cumulative sum of the contributions to dissimilarity. Use these values for Table S2.3 in sup mat
 options(scipen = 100)
-sim <- with(metadata, simper(bc_dat, cluster)) 
+sim <- with(metadata2, simper(bc_dat2, cluster)) 
 summary(sim)
 sim #lists most influential species and their cumulative contributions
 
 #to get the overall dissimilarity between the groups (where the branches are in the dendrogram)
 lapply(sim, FUN = function(x){x$overall})
 
+
+
+## To compare diets between migration timing groups within each region
+# DI only
+DI_dat <- clusdata %>%
+  filter(location == "DI") %>%
+  select(6:51)
+
+DI_meta <- metadata %>%
+  filter(location == "DI") %>%
+  mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late")))
+DI_dist <- vegdist(DI_dat, method = "bray")
+
+detach(DI_meta)
+attach(DI_meta)
+
+#anosim using our dissimilarity matrix and our grouping variable
+spat.ano <- anosim(DI_dist, tperiod)
+summary(spat.ano)
+plot(spat.ano)
+
+# JS only
+JS_dat <- clusdata %>%
+  filter(location == "JS") %>%
+  select(6:51)
+
+JS_meta <- metadata %>%
+  filter(location == "JS") %>%
+  mutate(tperiod = factor(tperiod, levels = c("JS_Early", "JS_Peak", "JS_Late")))
+JS_dist <- vegdist(JS_dat, method = "bray")
+
+detach(JS_meta)
+attach(JS_meta)
+
+#anosim using our dissimilarity matrix and our grouping variable
+spat.ano <- anosim(JS_dist, tperiod)
+summary(spat.ano)
+plot(spat.ano)
 ```
 
 ```{r}
@@ -269,7 +322,7 @@ lapply(sim, FUN = function(x){x$overall})
 ##-------Ordination-----------##
 ##
 
-metadata <- as.data.frame(metadata) %>%
+metadata <- as.data.frame(metadata2) %>%
   mutate(precip = as.factor(precip), stock_1 = as.factor(stock_1))
 
 
@@ -278,7 +331,7 @@ metadata <- as.data.frame(metadata) %>%
 # sourced code from http://userweb.eng.gla.ac.uk/umer.ijaz/bioinformatics/ecological.html
 set.seed(8)
 
-sol <- metaMDS(bc_dat, distance = "bray", k=2, trymax = 500, autotransform = FALSE, plot = TRUE, noshare = 0.1)
+sol <- metaMDS(bc_dat2, distance = "bray", k=2, trymax = 500, autotransform = FALSE, plot = TRUE, noshare = 0.1)
 sol$stress # needs to be below 0.2
 
 NMDS = data.frame(x=sol$point[,1], y = sol$point[,2], ID = as.factor(metadata[,4]), tperiod = as.factor(metadata[,2]), time = as.factor(metadata[,3]), date = metadata[,10], year = as.factor(metadata[,11]), location = as.factor(metadata[,7]), region = as.factor(metadata[,8]), cluster = as.factor(metadata[,5]), stock = as.factor(metadata[,29]))
@@ -355,8 +408,8 @@ ef
 envdat2 <- envdat %>%
   select(-c(stock_1, precip, week))
 
-envmodel <- bioenv(bc_dat, envdat2, method = "spearman", use = "complete.obs", metric = "euclidean")
-envmodel # best model has secchi and SST as leading explanatory variables (highest correlation to community data), but model with zooplankton abundance is almost the same so kept in         
+envmodel <- bioenv(bc_dat2, envdat2, method = "spearman", use = "complete.obs", metric = "euclidean")
+envmodel # best model has SST and secchi as leading explanatory variables (highest correlation to community data)
 summary(envmodel) 
 
 
@@ -367,7 +420,7 @@ df_envfit<-df_envfit*vegan:::ordiArrowMul(df_envfit)
 df_envfit<-as.data.frame(df_envfit)
 df_envfit <- cbind(df_envfit, env = row.names(df_envfit))
 df_envfit <- df_envfit %>%
-        filter(env %in% c("secchi", "SST", "Zooplankton_Abund")) # identified as leading variables in the bioenv model
+        filter(env %in% c("secchi", "SST")) # identified as leading variables in the bioenv model
 rownames(df_envfit)=df_envfit[,3]
 df_envfit <- df_envfit %>%
         select(1:2)
