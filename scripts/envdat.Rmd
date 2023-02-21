@@ -229,7 +229,7 @@ zoop_biom_p <- ggplot(zoop_dat, aes(x = week, y = mean_biom)) +
   geom_line(aes(colour = location)) +
   geom_ribbon(aes(ymin = mean_biom - sd_biom, ymax = mean_biom + sd_biom, colour = location, fill = location), alpha = 0.35) +
   geom_rect(aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), data = rect, inherit.aes = FALSE) +
-  facet_wrap(~year) +
+  facet_wrap(~year, scales = "free_y") +
   theme_classic() +
   theme(axis.text.x = element_blank(),
     axis.text.y = element_text(size = 10),
@@ -252,7 +252,7 @@ zoop_abund_p <- ggplot(zoop_dat, aes(x = week, y = mean_abund)) +
   geom_line(aes(colour = location)) +
   geom_ribbon(aes(ymin = mean_abund - sd_abund, ymax = mean_abund + sd_abund, colour = location, fill = location), alpha = 0.35) +
   #geom_rect(aes(xmin = xmin, xmax = xmax, ymin = 0, ymax = Inf), alpha = 0.2, fill = c("#F8766D", "#00BFC4", "#F8766D", "#00BFC4"), data = rect, inherit.aes = FALSE) +
-  facet_wrap(~year) +
+  facet_wrap(~year, scales = "free_y") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
     axis.text.y = element_text(size = 10),
@@ -302,13 +302,13 @@ zoop_size_biom_p <- ggplot(zoop_size_biom, aes(x = as.factor(week), y = biomass,
               panel.background = element_rect(fill = "white", colour = "grey50"),
               strip.background = element_blank(),
               strip.text = element_blank(),
-              legend.title = element_blank(),
         legend.position = "bottom") +
   scale_x_discrete(breaks = c("18", "20", "22", "24", "26", "28"), 
                      labels = c("May 1", "May 15", "June 1", "June 15", 
                                 "July 1", "July 15")) +
   scale_fill_manual(values = c("cadetblue1","cadetblue3","cadetblue4")) +
-  ylab(expression(atop("Prey Size Class", paste("% of Biomass"))))
+  ylab(expression(atop("Prey Size Class", paste("% of Biomass")))) +
+  labs(fill = expression(Size~(mu*m)))
 zoop_size_biom_p
 
 ylab(expression(atop("Zoop Biom", paste((mg~"\U00B7"~m^-3)))))
@@ -329,7 +329,7 @@ dev.off()
 
 
 # Use patchwork to combine plots and save
-((migration_timing_p/SST/SSS/secchi/zoop_biom_p/zoop_size_biom_p) + plot_layout(guides = 'collect')) & theme(legend.position = "bottom") & theme(plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm"))
+((SST/SSS/secchi/zoop_biom_p/zoop_size_biom_p) + plot_layout(guides = 'collect')) & theme(legend.position = "bottom") & theme(plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm"))
 
 ggsave("../figs/migrationtiming/migration_alldat.png", width = 16, height = 24, units = "cm")
 
