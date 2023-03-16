@@ -164,9 +164,6 @@ clusdata1 <- clusdata %>%
   select(1:4, 52:53, 5:51)
   
 
-
-   
-
 #edit metadata to only contain same ID's as in the fish data
 metadata1 <- semi_join(meta, clusdata1, by = "ID")
 
@@ -247,9 +244,11 @@ bc_dat2 <- clusdata2[8:53]
 
 #edit metadata to only contain same ID's as in the fish data
 metadata2 <- semi_join(metadata, clusdata2, by = "ID") %>%
-  mutate(stock_1 = replace_na(stock_1, "Unknown"))
+  mutate(stock_1 = replace_na(stock_1, "Unknown")) %>%
+  distinct()
   #add_count(stock_1) %>% #If you only want to compare stocks with >2 samples add the following code in and use clusdata3 instead
   #filter(n>2)
+
 
 #clusdata3 <- semi_join(clusdata2, metadata, by = "ID")
 #rownames(clusdata3) = clusdata3[,1]
@@ -263,7 +262,7 @@ detach(metadata2) # will read as error the first time if metadata has not been p
 attach(metadata2)
 
 #anosim using our dissimilarity matrix and our grouping variable. Can replace grouping variable with others (e.g. year, location, time period, cluster, etc). Compares within and between group similarity. Significant difference between groups when between group dissimilarity is higher than within group (R score closer to 1)
-spat.ano <- anosim(bc_dist, year)
+spat.ano <- anosim(bc_dist, stock_1)
 summary(spat.ano)
 plot(spat.ano)
 
@@ -281,38 +280,40 @@ lapply(sim, FUN = function(x){x$overall})
 
 ## To compare diets between migration timing groups within each region
 # DI only
-DI_dat <- clusdata %>%
+DI_dat <- clusdata2 %>%
   filter(location == "DI") %>%
-  select(6:51)
+  select(8:53)
 
-DI_meta <- metadata %>%
+DI_meta <- metadata2 %>%
   filter(location == "DI") %>%
   mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late")))
+
 DI_dist <- vegdist(DI_dat, method = "bray")
 
 detach(DI_meta)
 attach(DI_meta)
 
 #anosim using our dissimilarity matrix and our grouping variable
-spat.ano <- anosim(DI_dist, tperiod)
+spat.ano <- anosim(DI_dist, time)
 summary(spat.ano)
 plot(spat.ano)
 
 # JS only
-JS_dat <- clusdata %>%
+JS_dat <- clusdata2 %>%
   filter(location == "JS") %>%
-  select(6:51)
+  select(8:53)
 
-JS_meta <- metadata %>%
+JS_meta <- metadata2 %>%
   filter(location == "JS") %>%
   mutate(tperiod = factor(tperiod, levels = c("JS_Early", "JS_Peak", "JS_Late")))
+
 JS_dist <- vegdist(JS_dat, method = "bray")
 
 detach(JS_meta)
 attach(JS_meta)
 
 #anosim using our dissimilarity matrix and our grouping variable
-spat.ano <- anosim(JS_dist, tperiod)
+spat.ano <- anosim(JS_dist, time)
 summary(spat.ano)
 plot(spat.ano)
 ```
