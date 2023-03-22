@@ -9,6 +9,9 @@ library(ggpubr)
 library(here)
 library(lubridate)
 library(FSA)
+library(vegan)
+library(NbClust)
+library(dendextend)
 
 myzoopcomp <- read_csv("../raw/zoopcomp.csv")
 myzoopww <- read_csv("../raw/zoopww.csv")
@@ -26,14 +29,36 @@ zoop_abund <- allzoopcomp %>%
   mutate(location = case_when(grepl("D", site) ~ "DI",
                               grepl("Q", site) ~ "DI",
                               grepl("J", site) ~ "JS")) %>%
-  select(date, year, location, site, phylum, final_category, plot.taxon, total_count, abundance) %>%
+  select(sample_id, date, year, location, site, phylum, final_category, plot.taxon, total_count, abundance) %>%
   mutate(plot.taxon = case_when(plot.taxon %in% c("Fish", "Insect", "Jellyfish") ~ "Other",
                                 TRUE ~ plot.taxon)) %>%
   filter(total_count != "NA", phylum != 'NA', site != "QU39") %>%
   mutate(location = factor(location, levels = c("JS", "DI"))) %>% 
-  group_by(year, date, location, plot.taxon) %>%
-  summarise(totcount = sum(total_count, na.rm = T), totabund = sum(abundance,na.rm = T)) 
- 
+  group_by(sample_id, year, date, location, plot.taxon) %>%
+  summarise(totcount = sum(total_count, na.rm = T), totabund = sum(abundance,na.rm = T)) %>% 
+  group_by(sample_id, year, date, location) %>%
+  mutate(total = sum(totcount), relabund = ((totcount/total)*100))
+  
+ zoop_tperiod <- zoop_abund %>%
+   mutate(yday = yday(ymd(date)), week = week(ymd(date)), year = year(ymd(date))) %>%
+  filter(date > "2015-05-01") %>%
+  mutate(year = as.factor(year)) %>%
+  mutate(tperiod = case_when(location == "DI" & year == 2015 & yday < 141 ~ "Early", #ydays for each migration timing group based on Brett's cumulative catch over the sampling period using Q1 and Q3
+                         location == "DI" & year == 2015 & yday > 140 & yday < 154 ~ "Peak",
+                         location == "DI" & yday > 153 ~ "Late",
+                         location == "DI" & year == 2016 & yday < 139 ~ "Early",
+                         location == "DI" & year == 2016 & yday > 138 & yday < 155 ~ "Peak",
+                         location == "JS" & year == 2015 & yday < 148 ~ "Early",
+                         location == "JS" & year == 2015 & yday > 147 & yday < 159 ~ "Peak",
+                         location == "JS" & year == 2015 & yday > 158 ~ "Late",
+                         location == "JS" & year == 2016 & yday < 149 ~ "Early",
+                         location == "JS" & year == 2016 & yday > 148 & yday < 164 ~ "Peak",
+                         location == "JS" & year == 2016 & yday > 164 ~ "Late")) %>%
+  mutate(tperiod = as.factor(tperiod)) %>%
+   group_by(location, year, tperiod, plot.taxon) %>%
+   mutate(mean_abund = mean(relabund, na.rm = T), sd_abund = sd(relabund, na.rm = T)) %>%
+   select(c(2, 4:5, 12:14)) %>%
+   distinct()
 
 zoop_abund$year <- format(as.factor(zoop_abund$year))
 zoop_abund$date_m <- format(as.Date(zoop_abund$date), "%b-%d")
@@ -90,7 +115,7 @@ zoop_abund_p +
 ggsave("../figs/zoops/allzoops_overtime.png", width = 18, height = 14, units = "cm")
 ```
 
-```{r All Zoop Anovas}
+```{r All Zoop Stats}
 zoop_biomass <- allzoopww %>%
   select(sample_id, site, date, biomass) %>%
   group_by(sample_id, site, date) %>%
@@ -127,55 +152,106 @@ zoop_dat <- zoop_data %>%
                          location == "JS" & year == 2016 & yday > 148 & yday < 164 ~ "Peak",
                          location == "JS" & year == 2016 & yday > 164 ~ "Late")) %>%
   mutate(tperiod = as.factor(tperiod)) %>%
-  group_by(year, location, week) %>%
-  mutate(mean_biom = mean(biomass), sd_biom = sd(biomass), mean_abund = mean(abundance), sd_abund = sd(abundance), mean_size = mean(size), sd_size = sd(size))
+  group_by(tperiod, location) %>%
+  mutate(mean_biom = mean(biomass), sd_biom = sd(biomass), log_biom = log(mean_biom), mean_abund = mean(abundance), sd_abund = sd(abundance), log_abund = log(mean_abund), mean_size = mean(size), sd_size = sd(size), log_size = log(mean_size))
 
-hist(zoop_dat$mean_biom)
+hist(zoop_dat$abundance)
 
-
-zoop_biom_p <- ggplot(zoop_dat, aes(x = week, y = biomass)) +
-  geom_point(aes(colour = location, pch = location)) +
-  geom_line(aes(colour = location)) +
-  facet_wrap(~year, scales = "free_y") +
-  theme_classic() +
-  theme(axis.text.x = element_blank(),
-    axis.text.y = element_text(size = 10),
-              axis.title.x = element_blank(),
-              axis.title.y = element_text(size = 10),
-              panel.background = element_rect(fill = "white", colour = "grey50"),
-              strip.background = element_blank(),
-              strip.text = element_blank(),
-              legend.title = element_blank(),
-        legend.position = "bottom") +
-  scale_x_continuous(limits = c(18, 28), 
-                     breaks = c(18, 20, 22, 24, 26, 28), 
-                     labels = c("May 1", "May 15", "June 1", "June 15", 
-                                "July 1", "July 15")) +
-  ylab(expression(atop("Zoop Biom", paste((mg~"\U00B7"~m^-3)))))
-zoop_biom_p
-
-
-DI_dat15 <- zoop_dat %>%
-  filter(location == "DI", year == "2015")
+DI_dat <- zoop_dat %>%
+  filter(location == "DI")
 JS_dat <- zoop_dat %>%
   filter(location == "JS")
 
-one.way <- aov(mean_abund ~ year, data = zoop_dat)
-summary(one.way)
-kruskal.test(mean_abund~ year, data = zoop_dat)
-# no sig dif between years, sig dif between locations so separate out DI and JS zoops
-dunnTest(mean_abund ~ (as.factor(year)), data = zoop_dat, method = "holm")
+# Data are non-parametric
+kruskal.test(size~tperiod, data = JS_dat)
+# only sig difs were in biomass between years and size between time periods - use post-hoc tests
 
-kruskal.test(mean_abund ~ year + tperiod, data = zoop_dat)
-formula <- formula(mean_abund ~ year + tperiod)
-kruskal.test(formula, data = zoop_dat)
+# post hoc
+dunnTest(biomass ~ year, data = zoop_dat, method = "bonferroni")
+# mean size greater in JS in peak vs early
 
-ggplot(zoop_dat, aes(x = year, y = mean_abund, fill = as.factor(year))) + 
+
+ggplot(DI_dat, aes(x = tperiod, y = biomass, fill = year)) + 
   geom_boxplot(outlier.shape = NA) + 
   geom_jitter(width = 0.2) + 
   theme(legend.position="top") 
   #scale_y_continuous(limits = c(0,2000))
 
+```
+
+```{r Prey Comp Cluster}
+zoop_abund2 <- allzoopcomp %>%
+  mutate(yday = yday(date), year = year(ymd(date))) %>%
+  filter(date > "2015-05-01") %>%
+  mutate(location = case_when(grepl("D", site) ~ "DI",
+                              grepl("Q", site) ~ "DI",
+                              grepl("J", site) ~ "JS")) %>%
+  mutate(tperiod = case_when(location == "DI" & year == 2015 & yday < 141 ~ "DI_Early", #ydays for each migration timing group based on Brett's cumulative catch over the sampling period using Q1 and Q3
+                         location == "DI" & year == 2015 & yday > 140 & yday < 154 ~ "DI_Peak",
+                         location == "DI" & yday > 153 ~ "DI_Late",
+                         location == "DI" & year == 2016 & yday < 139 ~ "DI_Early",
+                         location == "DI" & year == 2016 & yday > 138 & yday < 155 ~ "DI_Peak",
+                         location == "JS" & year == 2015 & yday < 148 ~ "JS_Early",
+                         location == "JS" & year == 2015 & yday > 147 & yday < 159 ~ "JS_Peak",
+                         location == "JS" & year == 2015 & yday > 158 ~ "JS_Late",
+                         location == "JS" & year == 2016 & yday < 149 ~ "JS_Early",
+                         location == "JS" & year == 2016 & yday > 148 & yday < 164 ~ "JS_Peak",
+                         location == "JS" & year == 2016 & yday > 164 ~ "JS_Late")) %>%
+  group_by(sample_id, plot.taxon) %>%
+  mutate(total = sum(total_count)) %>%
+  ungroup() %>%
+  distinct() %>%
+  group_by(sample_id) %>%
+  mutate(relabund = (total/sum(total))) %>%
+  mutate(arcsin = ((2/pi)*asin(sqrt(relabund)))) %>% # data need to be transformed for Bray-Curtis analysis
+  select(sample_id, year, tperiod, site, location, plot.taxon, arcsin) %>%
+  mutate(tperiod = factor(tperiod, levels = c("DI_Early", "DI_Peak", "DI_Late", "JS_Early", "JS_Peak", "JS_Late"))) %>%
+  distinct() %>%
+  filter(sample_id != "QPK259")
+
+
+clusdata <- spread(zoop_abund2, key = plot.taxon, value = arcsin) 
+clusdata[is.na(clusdata)] <- 0
+
+#converting it to a dataframe and setting rownames as the first column and then only selecting the taxonomic data columns
+# as part of the data prep for Bray-Curtis
+clusdata <- data.frame(clusdata)
+rownames(clusdata) = clusdata[,1]
+bc_dat <- clusdata[6:16]
+
+#vegdist uses the vegan package to calculate the distances between variables
+bc_dist <- vegdist(bc_dat, method = "bray")
+
+#hclust creates the dendrogram by calculating the amount of dissimilarity between clusters,
+# average calculates the distance between all the different values in each group and then averages them
+bc_clust <- hclust(bc_dist, method = "average")
+
+# plotting the Bray-Curtis dissimilarity, I made it as a dendrogram to flatten out the bottom
+den_clust = as.dendrogram(bc_clust)
+plot(den_clust)
+
+# NbClust using 30 indices and the majority rule: suggests 2 clusters. Move ahead with this statistic. 2 Clusters, but visual inspection of dendrogram shows that there are 3 sub clusters in the DI cluster (excluding outliers) that roughly correspond to migration timing. Use k = 8 to identify subclusters and plot in NMDS
+mydata <- bc_dat
+NbClust(data = mydata, diss = NULL, distance = "euclidean",
+        min.nc = 2, max.nc = 20, method = "average")
+
+den_clust <- den_clust %>%
+  color_branches(k=3)
+plot(den_clust, ylab = "Bray-Curtis Dissimilarity", ylim = c(0,0.6))
+
+
+#simper analysis using the BC dissimilarity matrix and grouping variable. Produces table with average contribution to dissimilary, avg abundances in groups a and b, and the cumulative sum of the contributions to dissimilarity. Use these values for Table S2.3 in sup mat
+options(scipen = 100)
+zoop_meta <- zoop_abund2 %>%
+  select(1:5) %>%
+  distinct()
+
+sim <- with(zoop_meta, simper(bc_dat, tperiod)) 
+summary(sim)
+sim #lists most influential species and their cumulative contributions
+
+#to get the overall dissimilarity between the groups (where the branches are in the dendrogram)
+lapply(sim, FUN = function(x){x$overall})
 ```
 
 

@@ -95,16 +95,34 @@ write_csv(fish_metrics, "../processed/fish_metrics.csv")
 
 ```{r fish sizes}
 fish_dat <- left_join(survey_seines_fish, fish_lab[,c("ufn", "weight", "fork_length")], by = "ufn") %>%
-  mutate(year = year(ymd(survey_date)), week = week(ymd(survey_date))) %>%
+  mutate(year = year(survey_date), yday = yday(survey_date))  %>%
   filter(year %in% c(2015:2016), species == "SO", fork_length != "NA") %>%
   select(-c(4:13, 16:19, 26:29, 33:45, 49:57)) %>%
   mutate(location = case_when(grepl("D", site_id) ~ "DI",
                               grepl("J", site_id) ~ "JS")) %>%
-  mutate(year = as.factor(year))
+  mutate(year = as.factor(year)) %>%
+  mutate(tperiod = case_when(location == "DI" & year == 2015 & yday < 141 ~ "Early", #ydays for each migration timing group based on Brett's cumulative catch over the sampling period using Q1 and Q3
+                         location == "DI" & year == 2015 & yday > 140 & yday < 154 ~ "Peak",
+                         location == "DI" & yday > 153 ~ "Late",
+                         location == "DI" & year == 2016 & yday < 139 ~ "Early",
+                         location == "DI" & year == 2016 & yday > 138 & yday < 155 ~ "Peak",
+                         location == "JS" & year == 2015 & yday < 148 ~ "Early",
+                         location == "JS" & year == 2015 & yday > 147 & yday < 159 ~ "Peak",
+                         location == "JS" & year == 2015 & yday > 158 ~ "Late",
+                         location == "JS" & year == 2016 & yday < 149 ~ "Early",
+                         location == "JS" & year == 2016 & yday > 148 & yday < 164 ~ "Peak",
+                         location == "JS" & year == 2016 & yday > 164 ~ "Late")) %>%
+  mutate(tperiod = as.factor(tperiod))
 
 hist(fish_dat$fork_length)
 
-ggboxplot(fish_dat, x = "year", y = "fork_length", color = "location")
+ggboxplot(fish_dat, x = "tperiod", y = "fork_length", color = "location")
+
+ggplot(fish_dat, aes(x = location, y = fork_length, fill = year)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_jitter(width = 0.2) + 
+  theme(legend.position="top")
+
 
 ggplot(fish_dat, aes(x = as.factor(week), y = fork_length, color = location)) +
   geom_boxplot() +
@@ -119,9 +137,13 @@ ggplot(fish_dat, aes(x = as.factor(week), y = fork_length, color = location)) +
                                 "July 1", "July 15")) 
 ggsave("../figs/migrationtiming/forklengths_all.png", width = 15, height = 10, units = "cm")
 
-FL_aov <- aov(fork_length ~ location*year*week, data = fish_dat)
+FL_aov <- aov(fork_length ~ location*year*tperiod, data = fish_dat)
 summary(FL_aov)
 plot(FL_aov)
+TukeyHSD(FL_aov, conf.level = 0.95)
+par(mar=c(5,12,4,1))
+plot(TukeyHSD(FL_aov, conf.level = 0.95), las = 2)
+
 
 z <- lm(fork_length~location+year+location*year, data = fish_dat)
 summary(z)

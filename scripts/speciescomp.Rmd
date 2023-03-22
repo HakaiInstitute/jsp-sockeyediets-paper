@@ -91,7 +91,7 @@ dietcomp_cluster_plot <- ggplot(data = dietcomp_temp, aes(x = cluster, y = meanp
 dietcomp_cluster_plot <- dietcomp_cluster_plot + guides(fill = guide_legend(ncol = 1, byrow = TRUE, title = "Diet Taxa"))
 dietcomp_cluster_plot
 
-ggsave("../figs/speciescomp/dietcomp_biomass_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
+#ggsave("../figs/speciescomp/dietcomp_biomass_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
 
 
 ```
@@ -145,7 +145,7 @@ sizes_plot <- sizes_plot + guides(fill = guide_legend(ncol = 1, byrow = TRUE, ti
 sizes_plot
 
 
-ggsave("../figs/sizes/dietcomp_sizes_bycluster_temp.png", width = 16, height = 12, units = "cm", dpi = 300)
+#ggsave("../figs/sizes/dietcomp_sizes_bycluster_temp.png", width = 16, height = 12, units = "cm", dpi = 300)
 
 
 ```
@@ -194,7 +194,7 @@ timing_comp_clusterplot <- ggplot(data = timing_comp, aes(x = cluster, y = n)) +
 timing_comp_clusterplot <- timing_comp_clusterplot + guides(fill = guide_legend(ncol = 1, byrow = TRUE, title = "Migration Timing"))
 timing_comp_clusterplot
 
-ggsave("../figs/speciescomp/temp_migration_timing_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
+#ggsave("../figs/speciescomp/temp_migration_timing_bycluster.png", width = 16, height = 12, units = "cm", dpi = 300)
 
 
 # Now for boxplots
@@ -280,7 +280,7 @@ ggsave("../figs/GSI/stocks_by_cluster.png", width = 14, height = 10, units = "cm
 
 ```{r GFI}
 ## --- GFI analyses by migration timing ---
-gfi_timing <- dat %>%
+gfi_timing <- temp %>%
   select(ufn, date, location, site, fishweight, corrected.bolus.ww) %>%
   filter(corrected.bolus.ww > 0, !is.na(fishweight)) %>%
   group_by(ufn) %>%
@@ -451,6 +451,42 @@ ggsave("../figs/sizes/gfi_cat_sizes.png", width = 12, height = 15, units = "cm",
 ggarrange(dietcomp_gfi_plot, gfi_sizes_plot, ncol = 2, common.legend = FALSE, legend = "bottom", labels = "AUTO", label.x = 0.2, label.y = 1.01, nrow = 1, align = "h")
 ggsave("../figs/speciescomp/dietcomp_by_gfi.png", width = 22, height = 16, units = "cm", dpi = 300)
  
+
+gfi2 <- gfi_timing %>%
+  mutate(year = year(ymd(date)), yday = yday(date))  %>%
+  mutate(tperiod = case_when(location == "DI" & year == 2015 & yday < 141 ~ "Early", #ydays for each migration timing group based on Brett's cumulative catch over the sampling period using Q1 and Q3
+                         location == "DI" & year == 2015 & yday > 140 & yday < 154 ~ "Peak",
+                         location == "DI" & yday > 153 ~ "Late",
+                         location == "DI" & year == 2016 & yday < 139 ~ "Early",
+                         location == "DI" & year == 2016 & yday > 138 & yday < 155 ~ "Peak",
+                         location == "JS" & year == 2015 & yday < 148 ~ "Early",
+                         location == "JS" & year == 2015 & yday > 147 & yday < 159 ~ "Peak",
+                         location == "JS" & year == 2015 & yday > 158 ~ "Late",
+                         location == "JS" & year == 2016 & yday < 149 ~ "Early",
+                         location == "JS" & year == 2016 & yday > 148 & yday < 164 ~ "Peak",
+                         location == "JS" & year == 2016 & yday > 164 ~ "Late")) %>%
+  mutate(tperiod = as.factor(tperiod))
+
+gfi3 <- left_join(gfi2, meta[c("ufn", "stock_1")], by = "ufn")
+
+hist(gfi3$gfi)
+
+anova <- aov(gfi~location*as.factor(year)*tperiod, data = gfi3)
+summary(anova)
+plot(anova)
+TukeyHSD(anova, conf.level = 0.95)
+par(mar=c(5,10,4,1))
+plot(TukeyHSD(anova, conf.level = 0.95), las = 2)
+
+# Data are non-parametric
+kruskal.test(size~tperiod, data = JS_dat)
+# only sig difs were in biomass between years and size between time periods - use post-hoc tests
+
+# post hoc
+dunnTest(size ~ tperiod, data = JS_dat, method = "bonferroni")
+# mean size greater in JS in peak vs early
+
+
 ```
 
 ```{r}

@@ -56,7 +56,6 @@ diet_biom <- temp %>%
   unite(ID, c(site, ufn), remove = FALSE) %>%
   filter(!corrected.prey.weight %in% c("NA", "#VALUE!"), !plot.taxon %in% c('NA', 'Nauplius', 'Digested', 'Parasite'), !is.na(plot.taxon)) %>%
   #filter(!ID %in% c("D07_U222", "D07_U242", "D07_U243", "D07_U301", "J07_U596", "J07_U611", "J07_U765")) %>% # if you want to remove outliers that result in too many small diet groups - I've chosen to leave all data in
-  mutate(yday = yday(date)) %>%
   mutate(tperiod = case_when(location == "DI" & year == 2015 & yday < 141 ~ "DI_Early", #ydays for each migration timing group based on Brett's cumulative catch over the sampling period using Q1 and Q3
                          location == "DI" & year == 2015 & yday > 140 & yday < 154 ~ "DI_Peak",
                          location == "DI" & yday > 153 ~ "DI_Late",
