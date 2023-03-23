@@ -459,9 +459,9 @@ NMDS.mean=aggregate(NMDS[,1:2],list(group=NMDS$cluster),mean)
 
 ## NMDS PLOT----------------
 ##Before plotting, run the ENVDAT code above to generate environmental vectors
-shape_values <- c(1, 19)
+shape_values <- c(1, 19, 2, 17)
 p <- ggplot(data = NMDS, aes(x,y, col = cluster)) +
-        geom_point(aes(shape=year, col = cluster), size = 2.5) + 
+        geom_point(aes(shape=ID, col = cluster), size = 2.5) + 
         scale_shape_manual(values=shape_values) + 
         geom_path(data = df_ell, aes(x=NMDS1, y = NMDS2), size = 1, linetype = 2, alpha = 0.8) +
         geom_segment(data = df_envfit, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2), arrow = arrow(length = unit(0.25, "cm")), colour = "grey30") +

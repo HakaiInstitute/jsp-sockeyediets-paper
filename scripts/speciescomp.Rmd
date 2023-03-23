@@ -471,7 +471,7 @@ gfi3 <- left_join(gfi2, meta[c("ufn", "stock_1")], by = "ufn")
 
 hist(gfi3$gfi)
 
-anova <- aov(gfi~location*as.factor(year)*tperiod, data = gfi3)
+anova <- aov(gfi~tperiod*stock_1, data = gfi3)
 summary(anova)
 plot(anova)
 TukeyHSD(anova, conf.level = 0.95)

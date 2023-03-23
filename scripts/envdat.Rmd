@@ -106,12 +106,12 @@ env <- env_dat %>%
   filter(year %in% c("2015", "2016")) %>%
   add_row(week = 18, year = 2015) %>%
   add_row(week = 18, year = 2016) %>%
-  group_by(year, location, week) %>%
+  group_by(year, location) %>%
   mutate(meanSST = mean(meanT), sdSST = sd(meanT), meanSSS = mean(meanS), sdSSS = sd(meanS), meansecchi = mean(secchi, na.rm = T), sdsecchi = sd(secchi, na.rm = T)) %>%
   group_by(year, location) %>%
   mutate(annual_meanSST = mean(meanT)) %>%
   select(c(4, 7:15)) %>%
-  distinct()
+  distinct() 
   
 
 # create a rectangle overlay to show the peak sockeye migration window for each year - set different ymin values to match SST
