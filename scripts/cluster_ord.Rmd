@@ -175,7 +175,7 @@ metadata <- merge(metadata1, clusdata1[,c("ID", "tperiod", "cluster")], by = "ID
                           grepl("Peak", tperiod) ~ "Peak",
                           grepl("Late", tperiod) ~ "Late")) %>%
   select(1:2, 29, 5, 3:4, 6:28) 
-write_csv(metadata, "../processed/metadata_with_clusters.csv") # save this version of metadata to use for species comp figures
+#write_csv(metadata, "../processed/metadata_with_clusters.csv") # save this version of metadata to use for species comp figures
 
 ```
 
@@ -225,7 +225,7 @@ p <- ggplot() +
   annotate("text", x = 10, y = 0.8, label = "B3", hjust = 0, vjust = 0) 
    
  p
- ggsave("../figs/NMDS/relbiom_dend_migrationtime_temp.png", width = 20, height = 20, units = "cm")
+ #ggsave("../figs/NMDS/relbiom_dend_migrationtime_temp.png", width = 20, height = 20, units = "cm")
 
 
 ```

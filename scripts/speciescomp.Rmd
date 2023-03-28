@@ -45,6 +45,7 @@ diet_clusters <- left_join(tempdat, meta[,c("ID", "tperiod", "time", "ID3", "clu
 
 ```{r Sepcies Comp by Cluster}
 # calculating the proportion of each diet item in each stomach and then averaging across stomachs in each cluster
+options(scipen = 999)
 dietcomp_temp <- diet_clusters %>%
         select(ufn, site, cluster, plot.taxon.g, corrected.prey.weight) %>%
         filter(corrected.prey.weight != "NA", !plot.taxon.g %in% c('Nauplius', 'Digested', 'Parasite'), !is.na(plot.taxon.g)) %>% 
@@ -57,9 +58,11 @@ dietcomp_temp <- diet_clusters %>%
         mutate(meanprop = mean(ind_prop), sdprop = sd(ind_prop)) %>%
         group_by(cluster) %>%
         mutate(n = length(unique(ufn)), mean_tot_weight = mean(tot_stom_biom)) %>%
-        select(cluster, n, mean_tot_weight, plot.taxon.g, meanprop, sdprop) %>%
+        #select(cluster, n, mean_tot_weight, plot.taxon.g, meanprop, sdprop) %>%
         filter(n > 2) %>%
        distinct() 
+
+write_csv(dietcomp_temp, "../processed/diet_content_weights.csv")
   
 samplesizes <- data.frame(x=c("A1", "A2", "B1", "B2", "B3"), y=c(1.05, 1.05, 1.05, 1.05, 1.05), z=c(112, 6, 30, 23, 16))
         

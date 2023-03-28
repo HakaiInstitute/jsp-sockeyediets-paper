@@ -1796,17 +1796,13 @@ pre code {
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuIyBEYXRhIGFyZSBub24tcGFyYW1ldHJpY1xua3J1c2thbC50ZXN0KHNpemV+dHBlcmlvZCwgZGF0YSA9IEpTX2RhdClcblxuYGBgIn0= -->
-<pre class="r"><code># Data are non-parametric
-kruskal.test(size~tperiod, data = JS_dat)
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuem9vcF9kYXRhIDwtIGxlZnRfam9pbih6b29wX2FidW5kYW5jZSwgem9vcF9iaW9tYXNzKSAlPiVcbiAgZmlsdGVyKGJpb21hc3MgIT0gXCJOQVwiKVxuXG5gYGAifQ== -->
+<pre class="r"><code>zoop_data &lt;- left_join(zoop_abundance, zoop_biomass) %&gt;%
+  filter(biomass != &quot;NA&quot;)
 </code></pre>
 <!-- rnb-source-end -->
-<!-- rnb-output-begin eyJkYXRhIjoiXG5cdEtydXNrYWwtV2FsbGlzIHJhbmsgc3VtIHRlc3RcblxuZGF0YTogIHNpemUgYnkgdHBlcmlvZFxuS3J1c2thbC1XYWxsaXMgY2hpLXNxdWFyZWQgPSA4LjUwODMsIGRmID0gMiwgcC12YWx1ZSA9IDAuMDE0MlxuIn0= -->
-<pre><code>
-    Kruskal-Wallis rank sum test
-
-data:  size by tperiod
-Kruskal-Wallis chi-squared = 8.5083, df = 2, p-value = 0.0142</code></pre>
+<!-- rnb-output-begin eyJkYXRhIjoiSm9pbmluZywgYnkgPSBjKFwic2FtcGxlX2lkXCIsIFwic2l0ZVwiLCBcImRhdGVcIilcbiJ9 -->
+<pre><code>Joining, by = c(&quot;sample_id&quot;, &quot;site&quot;, &quot;date&quot;)</code></pre>
 <!-- rnb-output-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
