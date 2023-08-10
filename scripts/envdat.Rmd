@@ -106,7 +106,7 @@ env <- env_dat %>%
   filter(year %in% c("2015", "2016")) %>%
   add_row(week = 18, year = 2015) %>%
   add_row(week = 18, year = 2016) %>%
-  group_by(year, location) %>%
+  group_by(year, location, week) %>%
   mutate(meanSST = mean(meanT), sdSST = sd(meanT), meanSSS = mean(meanS), sdSSS = sd(meanS), meansecchi = mean(secchi, na.rm = T), sdsecchi = sd(secchi, na.rm = T)) %>%
   group_by(year, location) %>%
   mutate(annual_meanSST = mean(meanT)) %>%
@@ -331,7 +331,7 @@ dev.off()
 # Use patchwork to combine plots and save
 ((SST/SSS/secchi/zoop_biom_p/zoop_size_biom_p) + plot_layout(guides = 'collect')) & theme(legend.position = "bottom") & theme(plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm"))
 
-ggsave("../figs/migrationtiming/migration_alldat.png", width = 16, height = 24, units = "cm")
+ggsave("../figs/migrationtiming/migration_alldat.pdf", width = 16, height = 24, units = "cm")
 
 ```
 

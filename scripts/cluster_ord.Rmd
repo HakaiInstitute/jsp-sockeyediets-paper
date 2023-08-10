@@ -225,7 +225,7 @@ p <- ggplot() +
   annotate("text", x = 10, y = 0.8, label = "B3", hjust = 0, vjust = 0) 
    
  p
- #ggsave("../figs/NMDS/relbiom_dend_migrationtime_temp.png", width = 20, height = 20, units = "cm")
+ ggsave("../figs/NMDS/relbiom_dend_migrationtime_temp.pdf", width = 20, height = 20, units = "cm")
 
 
 ```
@@ -473,7 +473,7 @@ p <- ggplot(data = NMDS, aes(x,y, col = cluster)) +
         labs(col = "Cluster", shape = "Year") 
 p
 
-ggsave("tempdietbiom_nmds_bioenv_bycluster.png", path = "../figs/NMDS", width = 18, height = 14, units = "cm", dpi = 300, type = "cairo")
+ggsave("tempdietbiom_nmds_bioenv_bycluster.pdf", path = "../figs/NMDS", width = 18, height = 14, units = "cm", dpi = 300)
 
 
 ```

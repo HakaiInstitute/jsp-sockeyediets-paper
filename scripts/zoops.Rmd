@@ -112,7 +112,7 @@ zoop_abund_p +
   guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   geom_text(data = samplesize, aes(x = date_m1, y = 1.07, label = count, fill = NULL), size = 2.2)
 
-ggsave("../figs/zoops/allzoops_overtime.png", width = 18, height = 14, units = "cm")
+ggsave("../figs/zoops/allzoops_overtime.pdf", width = 18, height = 14, units = "cm")
 ```
 
 ```{r All Zoop Stats}

@@ -58,13 +58,13 @@ dietcomp_temp <- diet_clusters %>%
         mutate(meanprop = mean(ind_prop), sdprop = sd(ind_prop)) %>%
         group_by(cluster) %>%
         mutate(n = length(unique(ufn)), mean_tot_weight = mean(tot_stom_biom)) %>%
-        #select(cluster, n, mean_tot_weight, plot.taxon.g, meanprop, sdprop) %>%
+        select(cluster, n, mean_tot_weight, plot.taxon.g, meanprop, sdprop) %>%
         filter(n > 2) %>%
        distinct() 
 
 write_csv(dietcomp_temp, "../processed/diet_content_weights.csv")
   
-samplesizes <- data.frame(x=c("A1", "A2", "B1", "B2", "B3"), y=c(1.05, 1.05, 1.05, 1.05, 1.05), z=c(112, 6, 30, 23, 16))
+samplesizes <- data.frame(x=c("A1", "A2", "B1", "B2", "B3"), y=c(1.06, 1.06, 1.06, 1.06, 1.06), z=c(112, 6, 30, 23, 16))
         
 # plotting proportions per cluster
 dietcomp_cluster_plot <- ggplot(data = dietcomp_temp, aes(x = cluster, y = meanprop)) + 
@@ -90,7 +90,7 @@ dietcomp_cluster_plot <- ggplot(data = dietcomp_temp, aes(x = cluster, y = meanp
                 legend.justification = "left",
                 plot.margin = unit(c(0.5,0.2,0.5,0.2), "cm")) +
         labs(y = "Average Proportion of Diet") +
-        scale_y_continuous(limits = c(0, 1.07), breaks = seq(0, 1, by = 0.25), expand = c(0,0.02))
+        scale_y_continuous(limits = c(0, 1.07), breaks = seq(0, 1, by = 0.25), expand = c(0,0.03))
 dietcomp_cluster_plot <- dietcomp_cluster_plot + guides(fill = guide_legend(ncol = 1, byrow = TRUE, title = "Diet Taxa"))
 dietcomp_cluster_plot
 
@@ -232,9 +232,9 @@ ggsave("../figs/speciescomp/temp_migrationtiming_boxplots_bycluster.png", width 
 
 ```{r}
 # Combining species comp and size comp into single figure
-ggarrange(dietcomp_cluster_plot, sizes_plot, timing_comp_clusterplot, ncol = 1, common.legend = FALSE, legend = "right", labels = c("i", "ii", "iii"), label.x = 0.1, label.y = 1.05, nrow = 3, align = "v") +
+ggarrange(dietcomp_cluster_plot, sizes_plot, timing_comp_clusterplot, ncol = 1, common.legend = FALSE, legend = "right", labels = c("a", "b", "c"), label.x = 0.1, label.y = 1.05, nrow = 3, align = "v") +
   theme(plot.margin = margin(0.5,0.2,0.2,0.2, "cm"))
-ggsave("../figs/speciescomp/temp_clustercomp.png", width = 20, height = 22, units = "cm", dpi = 300)
+ggsave("../figs/speciescomp/temp_clustercomp.pdf", width = 20, height = 22, units = "cm", dpi = 300)
 ```
 
 ```{r}
