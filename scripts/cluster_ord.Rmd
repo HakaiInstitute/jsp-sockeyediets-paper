@@ -27,28 +27,18 @@ library(cluster)
 Importing all data, but just use 'temp' for most recent version to address reviewer comments
 
 ```{r importing data, warning = FALSE, message=FALSE, include = FALSE}
-spat <- read_csv(here::here("raw", "spatial.csv")) 
 temp <- read_csv(here::here("raw", "Temporal.csv"))
 meta <- read_csv(here::here("processed", "metadata.csv"))
-
-spat <- spat %>%
-  mutate(date = make_date(year, month, day)) %>%
-  select(ufn, date, year, month, day, location, region, site, species.no, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon.d, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
-  mutate(corrected.prey.weight = as.numeric(corrected.prey.weight))
 
 temp <- temp %>%
  select(ufn, date, year, month, day, location, region, site, species.no, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon.d, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
   mutate(month = as.numeric(month), day = as.numeric(day), fishweight = as.numeric(fishweight), length.avg = as.numeric(length.avg))
 
-dat <- full_join(spat, temp) %>%
-  mutate(plot.taxon = case_when(plot.taxon == "Euphausiidae" ~ "Euphausiid",
-                                TRUE ~ plot.taxon))
 ```
 
 
 
 ```{r data wrangle biomass}
-# Can run this code with either spat data, temp data, or all data combined, just swap out source file
 # Biomass
 diet_biom <- temp %>%
   select(ufn, date, year, location, site, region, plot.taxon, corrected.prey.weight) %>%
@@ -109,25 +99,15 @@ bc_clust <- hclust(bc_dist, method = "average")
 ##Presence-Absence Version##
 ## using decostand function in vegan to convert data matrix to presence-absence data
 #spat_pa_data <- decostand(clusdata, "pa")
-#spat_pa_dist <- vegdist(spat_pa_dat, method = "bray", binary = T)
+#spat_pa_dist <- vegdist(spat_pa_data, method = "bray", binary = T)
 #spat_bc_clust <- hclust(spat_pa_dist, method = "average")
 
 ```
 
 ```{r Cluster metadata}
-# First identify # of clusters - this is a grey area. Some say to visually inspect dendrogram and choose, others use stats. Here I do both. Use the various stats to look at meaningful #s of clusters (use NbClust as it compares 30 indices) but then within the 2 main clusters (separated mainly by location), you can see that there are 3 subclusters (different migration timing) that have high dissimilarity so have pulled those out for comparison
+# First identify # of clusters - this is a grey area. Some say to visually inspect dendrogram and choose, others use stats. Here I do both. Use the various stats to look at meaningful #s of clusters
 
 mydata <- bc_dat
-
-# elbow method using within groups sum of squares and identify 'elbow' in the figure: k = 4
-fviz_nbclust(mydata, FUN = hcut, method = "wss")
-
-#Silhouette method which shows k = 9
-fviz_nbclust(mydata, FUN = hcut, method = "silhouette")
-
-#Gap statistic method which shows k = 20 (but that's also the kmax used)
-#gap_stat <- clusGap(mydata, FUN = hcut, nstart = 25, K.max = 20, B = 500)
-#fviz_gap_stat(gap_stat)
 
 # NbClust using 30 indices and the majority rule: suggests 2 clusters. Move ahead with this statistic. 2 Clusters, but visual inspection of dendrogram shows that there are 3 sub clusters in the DI cluster (excluding outliers) that roughly correspond to migration timing. Use k = 8 to identify subclusters and plot in NMDS
 NbClust(data = mydata, diss = NULL, distance = "euclidean",
@@ -203,7 +183,7 @@ dendrogram_ends <- dendrogram_segments %>%
 
 ID_col <- c("DI_Early" = "lightsalmon", "DI_Peak" = "orangered1", "DI_Late" = "firebrick", "JS_Early" = "skyblue", "JS_Peak" = "royalblue2", "JS_Late" = "darkblue")
 
-# Plot the dendrogram with each terminal branch coloured by location_timeperiod
+# Plot the dendrogram with each terminal branch coloured by location_timeperiod (Figure 5)
 p <- ggplot() +
  geom_segment(data = dendrogram_segments, aes(x=x, y=y, xend=xend, yend=yend)) +
  geom_segment(data = dendrogram_ends, aes(x=x, y=y.x, xend=xend, yend=yend, color = tperiod)) +
@@ -225,6 +205,7 @@ p <- ggplot() +
   annotate("text", x = 10, y = 0.8, label = "B3", hjust = 0, vjust = 0) 
    
  p
+ 
  ggsave("../figs/NMDS/relbiom_dend_migrationtime_temp.pdf", width = 20, height = 20, units = "cm")
 
 
@@ -326,9 +307,10 @@ metadata <- as.data.frame(metadata2) %>%
   mutate(precip = as.factor(precip), stock_1 = as.factor(stock_1))
 
 
-# metaMDS calculates the MDS stats. k value is the number of dimensions you want it to plot in
-## creating ellipses for clusters, specify how you want the clusters/ellipses drawn in 'ord' by selecting metadata 1-4
+# metaMDS calculates the MDS stats. k value is the number of dimensions you want it to plot in (start with 2, then try 3). Needs to reach a solution
+## creating ellipses for clusters, specify how you want the clusters/ellipses drawn in 'ord' by selecting metadata fields
 # sourced code from http://userweb.eng.gla.ac.uk/umer.ijaz/bioinformatics/ecological.html
+# set seed otherwise will randomly generate each time
 set.seed(8)
 
 sol <- metaMDS(bc_dat2, distance = "bray", k=2, trymax = 500, autotransform = FALSE, plot = TRUE, noshare = 0.1)
@@ -343,37 +325,6 @@ dev.off()
 plot(sol)
 sol
 
-
-#----
-# To explore distribution of diet data along the x and y axes in the ordination (just visualizations - not used in paper)
-ggplot(subset(NMDS, year == 2015), aes(x = date, y = x, col = location)) +
-  geom_point(position = position_jitter(w = 0.5, h = 0)) +
-  geom_hline(yintercept = 0) +
-  theme_bw() +
-  ggtitle("2015 'x'") +
-  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2015-05-10', '2015-07-01')))
-
-ggplot(subset(NMDS, year == 2016), aes(x = date, y = x, col = location)) +
-  geom_point(position = position_jitter(w = 0.5, h = 0)) +
-  geom_hline(yintercept = 0) +
-  theme_bw() +
-  ggtitle("2016 'x'") +
-  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2016-05-10', '2016-07-01')))
-
-ggplot(subset(NMDS, year == 2015), aes(x = date, y = y, col = location)) +
-  geom_point(position = position_jitter(w = 0.5, h = 0)) +
-  geom_hline(yintercept = 0) +
-  theme_bw() +
-  ggtitle("2015 'y'") +
-  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2015-05-10', '2015-07-01')))
-
-ggplot(subset(NMDS, year == 2016), aes(x = date, y = y, col = location)) +
-  geom_point(position = position_jitter(w = 0.5, h = 0)) +
-  geom_hline(yintercept = 0) +
-  theme_bw() +
-  ggtitle("2016 'y'") +
-  scale_x_date(date_breaks = "2 week", labels = date_format("%b-%d"), limits = as.Date(c('2016-05-10', '2016-07-01')))
-
 ```
 
 ```{r}
@@ -381,11 +332,11 @@ ggplot(subset(NMDS, year == 2016), aes(x = date, y = y, col = location)) +
 ##-------ENV DATA-------##
 ##
 #First look at the distribution of the env data.. is it normal?
-hist(metadata$meanFL)
+hist(metadata$forklength)
 hist(metadata$set_time)
 hist(metadata$meantemp)
 hist(metadata$meansal)
-hist(metadata$meansecchi)
+hist(metadata$secchi)
 hist(metadata$z.abundance)
 hist(metadata$z.biomass)
 
@@ -404,14 +355,13 @@ ef <- envfit(sol, envdat, permu = 999, na.rm = TRUE)
 ef
 
 #bioenv find the best subset of environmental variables to have max correlation with community dissimilarites
-#for some reason, if I don't include 'use = "complete.obs"' I get 'NA' for meantemp and meansal for their correlations.. not sure what this means? Remove categorical variables, removed week as it had the highest correlation, but JS week numbers are also later than DI so this is likely more a reflection of location than migration timing. Use yday instead for timing
+#if I don't include 'use = "complete.obs"' I get 'NA' for meantemp and meansal for their correlations.. Remove categorical variables, removed week as it had the highest correlation, but JS week numbers are also later than DI so this is likely more a reflection of location than migration timing. Use yday instead for timing
 envdat2 <- envdat %>%
   select(-c(stock_1, precip, week))
 
 envmodel <- bioenv(bc_dat2, envdat2, method = "spearman", use = "complete.obs", metric = "euclidean")
 envmodel # best model has SST and secchi as leading explanatory variables (highest correlation to community data)
 summary(envmodel) 
-
 
 
 #creating the data for the env vectors to be overlain on the NMDS - need to have env parameters as rownames
@@ -459,6 +409,7 @@ NMDS.mean=aggregate(NMDS[,1:2],list(group=NMDS$cluster),mean)
 
 ## NMDS PLOT----------------
 ##Before plotting, run the ENVDAT code above to generate environmental vectors
+# Figure 7
 shape_values <- c(1, 19, 2, 17)
 p <- ggplot(data = NMDS, aes(x,y, col = cluster)) +
         geom_point(aes(shape=ID, col = cluster), size = 2.5) + 
