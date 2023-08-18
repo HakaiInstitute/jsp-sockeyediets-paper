@@ -1,0 +1,57 @@
+---
+title: "within_stock_gsi_timing_diffs"
+author: "Brett Johnson"
+date: "2023-08-18"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(here)
+survey_seines_fish <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/2d398b3f906915ba88ed6f5fae3022e2e73082fb/jsp_catch_and_bio_data_complete.csv", guess_max = 20000)
+
+#survey_seines_fish$stock_1 <- toupper(survey_seines_fish$stock_1)
+
+dna <- survey_seines_fish %>% 
+  filter(prob_1 > 0.7) %>% # remove stock assignments with low probabilities
+  mutate(is_DI = grepl(x = site_id, pattern = "D"),
+         region = if_else(is_DI == TRUE, "DI", "JS"),
+         year = year(survey_date),
+         yday = yday(survey_date)) %>% 
+  filter(year %in% c(2015, 2016),
+         region_1 < 5) %>%  # Removes fish not from Fraser Region  
+  select(year, ufn, survey_date, yday, region, stock_1)
+
+```
+
+```{r}
+#Filter stocks down to stocks with greater than 10 fish caught in both years
+sum_di_dna <- dna %>% 
+  group_by(year, region, stock_1) %>% 
+  summarize(n = n(),
+            median = median(yday))%>% 
+  ungroup() %>% 
+  pivot_wider(names_from = year, values_from = c(n, median)) %>% 
+  drop_na() %>% 
+  filter(n_2015 > 10 & n_2016 > 10) %>% 
+  mutate(diff = median_2016 - median_2015)
+
+dna %>% 
+  filter(stock_1 %in% c("CHILKO", "L_ADAMS", "SCOTCH")) %>% 
+  ggplot(aes(x = yday, y = stock_1, colour = factor(year))) +
+  geom_boxplot()+
+  facet_grid(.~region) +
+  theme_bw()+
+  ylab("Genetic Stock")+
+  xlab("Date") +
+  scale_x_continuous(breaks = c(135, 152, 166, 182, 196), 
+                     labels = c("May 15", "June 1", "June 15", 
+                                "July 1", "July 15"))+ 
+  labs(colour = "Year")
+
+ggsave(here("figs", "genetic_stock_ID", "p_70_within_stocks_between_years_timing.png"), width = 19, height = 16, units = "cm")
+```
+```
+

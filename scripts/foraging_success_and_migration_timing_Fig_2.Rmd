@@ -1,0 +1,187 @@
+---
+title: "Foraging Success and Migration Timing"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(here)
+library(lubridate)
+library(patchwork)
+
+
+lump_fraser_sockeye_stocks <- function(stock_1) {
+  as.factor(stock_1)
+    forcats::fct_collapse(stock_1,
+                          Early_Stuart = c("DRIFTWOOD", "NARROWS", "DUST", "BIVOUAC", "ROSSETTE",
+                                           "SINTA", "PORTER_CR", "FORFAR", "BLACKWATER", "GLUSKIE",
+                                           "PAULA", "FELIX", "KYNOCK", "HUDSON_BAY", "SANDPOINT",
+                                           "FIVEMILE", "EARLY STUART"),
+                          Chilliwack = c("CHILLIW_LAKE", "DOLLYVARDEN_CR"),
+                          Pitt = c("PITT"),
+                          Nadina_Gates_Bowron_Nahatlatch = c("NADINA", "GATES_CR", "BOWRON",
+                                                             "NAHATLATCH"),
+                          Early_Thompson = c("SEYMOUR", "SCOTCH", "EAGLE", "U_ADAMS", "CAYENNE",
+                                             "FENNELL", "EARLY THOMPSON"),
+                          Harrison_Widgeon = c("HARRISON", "WIDGEON_SLOUGH"),
+                          Late_Stuart_Stellako = c("MIDDLE", "PINCHI_CR", "TACHIE", "STELLAKO",
+                                                   "KUZKWA_CR", "LATE STUART"),
+                          Chilko = c("CHILKO", "CHILKO-NORTH", "CHILKO_SOUTH"),
+                          Quesnel = c("L_HORSEFLY", "U_HORSEFLY", "HORSEFLY", "MCKINLEY",
+                                      "MITCHELL", "WASKO_CR", "BLUE_LEAD_CK", "QUESNEL_DECEPT",
+                                      "QUESNEL_HORSEF", "QUESNEL_MITCHE", "ROARING", "QUESNEL"),
+                          Raft_North_Thompson = c("RAFT", "THOMPSON_N"),
+                          Birkenhead_Big_Silver = c("BIRKENHEAD", "BIG_SILVER"),
+                          Late_Shuswap_Portage = c("EAGLE_L", "LITTLE", "L_SHUSWAP", "MIDDLESHUSWAP",
+                                                   "L_ADAMS", "PORTAGE_CR", "LATE SHUSWAP", "SHUSWAP"),
+                          Weaver_Cultus = c("WEAVER", "CULTUS_LAKE")
+    )
+}
+
+survey_data <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/supplemental_materials/tidy_data/survey_data.csv")
+
+seine_data <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/supplemental_materials/tidy_data/seine_data.csv")
+
+survey_seines <- right_join(survey_data, seine_data) %>% 
+  mutate(is_DI = grepl(x = site_id, pattern = "D"),yday = yday(survey_date))
+
+survey_seines$region = if_else(survey_seines$is_DI == TRUE, "DI", "JS")
+
+```
+
+```{r, join data}
+# Download stock ID sample and results data
+
+survey_seines_fish <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/2d398b3f906915ba88ed6f5fae3022e2e73082fb/jsp_catch_and_bio_data_complete.csv", guess_max = 20000)
+
+dna <- survey_seines_fish %>% 
+  filter(prob_1 > 0.7) %>% # remove stock assignments with low probabilities
+  mutate(is_DI = grepl(x = site_id, pattern = "D"),
+         region = if_else(is_DI == TRUE, "DI", "JS"),
+         year = year(survey_date),
+         yday = yday(survey_date),
+         lumped_stock_group = lump_fraser_sockeye_stocks(stock_1)) %>% 
+  filter(year %in% c(2015, 2016),
+         region_1 < 5) %>%  # Removes fish not from Fraser Region  
+  select(year, ufn, survey_date, yday, region, stock_1, lumped_stock_group)
+
+```
+
+
+```{r, lumped gsi plot}
+
+# Lumped plot one region (DI)
+lumped_gsi_plot <- ggplot() +
+  geom_boxplot(data = dna, 
+               aes(x= reorder(lumped_stock_group, -yday), y = yday, colour = region))+ 
+  coord_flip() +
+  theme_bw(base_size = 12) + 
+  facet_grid(. ~ year) +
+  xlab("Genetic Stock Management Group") +
+  scale_y_continuous(breaks = c(135, 152, 166, 182, 196), 
+                     labels = c("May 15", "June 1", "June 15", 
+                                "July 1", "July 15"),
+                     limits = c(130,196))+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        strip.text.x = element_blank(),
+        axis.title = element_blank(),
+        plot.margin = unit(c(0.2,0.5,0.2,0.1), "cm"))  
+  
+lumped_gsi_plot
+
+group_timing <- dna |> 
+  group_by(year, region, lumped_stock_group) |> 
+  summarize(q2 = quantile(yday, probs = 0.5))
+
+write_csv(group_timing, here("processed", "group_timing.csv"))
+  
+```
+
+```{r, rolling mean migration timing}
+
+# Combine both years for only DI
+migration_timing_DI_15_16 <- survey_seines %>% 
+  mutate(year = year(survey_date),
+         yday = yday(survey_date)) %>% 
+  filter(year %in% c(2015, 2016)) %>% 
+  group_by(year, region, yday) %>% # Here I group by day and take the average of the catches for each day. 
+  summarize(so_total = mean(so_total)) %>% 
+  ungroup() %>% 
+  select(yday, so_total, region, year) %>% 
+  mutate(year = as_factor(year)) %>% 
+  group_by(region) %>% 
+  mutate(roll_avg = zoo::rollmean(so_total, k = 7, fill = NA))
+
+
+migration_timing_DI_15_16_plot <- ggplot(migration_timing_DI_15_16, aes(x=yday)) +
+  geom_line(aes(y = roll_avg, group = region, colour = region), size = .75) +
+  scale_x_continuous(breaks = c(135, 152, 166, 182, 196), 
+                     labels = c("May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  coord_cartesian(xlim = c(130,196)) +
+  facet_grid(. ~ year) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        strip.text.x = element_blank(),
+        axis.title.x =element_blank(),
+        plot.margin = unit(c(0.2,0.5,0.2,0.1), "cm")) +
+  ylab("Sockeye Catch")
+
+migration_timing_DI_15_16_plot
+
+
+temp_diet_SO <- read_csv(here::here("raw", "Temporal.csv" )) |> 
+  distinct(ufn, .keep_all = TRUE) |> 
+  mutate(yday = yday(date),
+         region = location,
+         period = case_when(year == 2015 & region == "DI" & yday < 141 ~ "early",
+                            year == 2015 & region == "DI" & yday >= 141 & yday < 154 ~ "peak",
+                            year == 2015 & region == "DI" & yday >= 154 ~ "late",
+                            year == 2015 & region == "JS" & yday < 148 ~ "early",
+                            year == 2015 & region == "JS" & yday >= 148 & yday < 158 ~ "peak",
+                            year == 2015 & region == "JS" & yday >= 158 ~ "late",
+                            year == 2016 & region == "DI" & yday < 139 ~ "early",
+                            year == 2016 & region == "DI" & yday >= 139 & yday < 154 ~ "peak",
+                            year == 2016 & region == "DI" & yday >= 154 ~ "late",
+                            year == 2016 & region == "JS" & yday < 149 ~ "early",
+                            year == 2016 & region == "JS" & yday >= 149 & yday < 163 ~ "peak",
+                            year == 2016 & region == "JS" & yday >= 163 ~ "late"
+                            )
+         ) |> 
+  mutate(gfi = (((corrected.ww)/1000)/(as.numeric(fishweight)))*100)
+
+gfi_plot1 <- ggplot(temp_diet_SO, aes(x = yday, y= gfi, colour = region)) +
+  geom_point() +
+  facet_grid(.~year) +
+  #geom_smooth(method  = lm) +
+  scale_x_continuous(breaks = c(135, 152, 166, 182, 196), 
+                     labels = c("May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  coord_cartesian(xlim = c(130,196)) +
+  facet_grid(. ~ year) +
+  theme_bw(base_size = 12) +
+  ylab("Gut Fullnes Index") +
+  xlab("") +
+  theme(legend.position = c(.9,.7),
+        legend.title = element_blank(),
+        axis.title.x =element_blank(),
+        plot.margin = unit(c(0.2,0.5,0.2,0.1), "cm"),
+        legend.background = element_rect(fill="gray90", size=.5, linetype="solid"))
+  
+gfi_plot1
+
+
+combo_gsi_mt <- cowplot::plot_grid(gfi_plot1, migration_timing_DI_15_16_plot, lumped_gsi_plot, ncol = 1, axis = "lr", align = "v")
+combo_gsi_mt
+
+ggsave(here("figs", "gfi", "foraging_succes_migration_timing_figure 2.pdf"), width = 19, height = 16, units = "cm")
+
+
+```
+

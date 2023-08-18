@@ -1,0 +1,69 @@
+---
+title: "genetic_stock_groups"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup}
+library(tidyverse)
+
+# Create function to lump Fraser River stock groups into management units based on Table 3 in https://www.psc.org/download/32/frp-annual-reports/14360/2020-frp-annual-report.pdf
+
+lump_fraser_sockeye_stocks <- function(stock_1) {
+  as.factor(stock_1)
+    forcats::fct_collapse(stock_1,
+                          Early_Stuart = c("DRIFTWOOD", "NARROWS", "DUST", "BIVOUAC", "ROSSETTE",
+                                           "SINTA", "PORTER_CR", "FORFAR", "BLACKWATER", "GLUSKIE",
+                                           "PAULA", "FELIX", "KYNOCK", "HUDSON_BAY", "SANDPOINT",
+                                           "FIVEMILE", "EARLY STUART"),
+                          Chilliwack = c("CHILLIW_LAKE", "DOLLYVARDEN_CR"),
+                          Pitt = c("PITT"),
+                          Nadina_Gates_Bowron_Nahatlatch = c("NADINA", "GATES_CR", "BOWRON",
+                                                             "NAHATLATCH"),
+                          Early_Thompson = c("SEYMOUR", "SCOTCH", "EAGLE", "U_ADAMS", "CAYENNE",
+                                             "FENNELL", "EARLY THOMPSON"),
+                          Harrison_Widgeon = c("HARRISON", "WIDGEON_SLOUGH"),
+                          Late_Stuart_Stellako = c("MIDDLE", "PINCHI_CR", "TACHIE", "STELLAKO",
+                                                   "KUZKWA_CR", "LATE STUART"),
+                          Chilko = c("CHILKO", "CHILKO-NORTH", "CHILKO_SOUTH"),
+                          Quesnel = c("L_HORSEFLY", "U_HORSEFLY", "HORSEFLY", "MCKINLEY",
+                                      "MITCHELL", "WASKO_CR", "BLUE_LEAD_CK", "QUESNEL_DECEPT",
+                                      "QUESNEL_HORSEF", "QUESNEL_MITCHE", "ROARING", "QUESNEL"),
+                          Raft_North_Thompson = c("RAFT", "THOMPSON_N"),
+                          Birkenhead_Big_Silver = c("BIRKENHEAD", "BIG_SILVER"),
+                          Late_Shuswap_Portage = c("EAGLE_L", "LITTLE", "L_SHUSWAP", "MIDDLESHUSWAP",
+                                                   "L_ADAMS", "PORTAGE_CR", "LATE SHUSWAP", "SHUSWAP"),
+                          Weaver_Cultus = c("WEAVER", "CULTUS_LAKE")
+    )
+}
+```
+
+```{r}
+
+# Reads JSP data from v 1.3.1: https://github.com/HakaiInstitute/jsp-data/releases/tag/v1.3.1
+survey_seines_fish <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/2d398b3f906915ba88ed6f5fae3022e2e73082fb/jsp_catch_and_bio_data_complete.csv", guess_max = 20000)
+
+survey_seines_fish$stock_1 <- toupper(survey_seines_fish$stock_1)
+
+dna <- survey_seines_fish %>% 
+  filter(prob_1 > 0.7) %>% # remove stock assignments with low probabilities
+  mutate(is_DI = grepl(x = site_id, pattern = "D"),
+         region = if_else(is_DI == TRUE, "DI", "JS"),
+         year = year(survey_date),
+         yday = yday(survey_date),
+         lumped_stock_group = lump_fraser_sockeye_stocks(stock_1)) %>% 
+  filter(year %in% c(2015, 2016)) |> 
+  select(year, ufn, survey_date, yday, region, stock_1, lumped_stock_group)
+
+dna_summary <- dna |> 
+  group_by(year, lumped_stock_group) |> 
+  summarize(n = n()) |> 
+  ungroup() |> 
+  group_by(year) |> 
+  mutate(percent = n / sum(n) *100)
+
+#Ignore warnings for unused levels
+# dna table used to produce Table 1. in James et al. 2023.
+```
+

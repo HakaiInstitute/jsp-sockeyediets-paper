@@ -1,0 +1,100 @@
+---
+title: "Stock composition Table S2.1"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(here)
+library(lubridate)
+library(patchwork)
+
+
+lump_fraser_sockeye_stocks <- function(stock_1) {
+  as.factor(stock_1)
+    forcats::fct_collapse(stock_1,
+                          Early_Stuart = c("DRIFTWOOD", "NARROWS", "DUST", "BIVOUAC", "ROSSETTE",
+                                           "SINTA", "PORTER_CR", "FORFAR", "BLACKWATER", "GLUSKIE",
+                                           "PAULA", "FELIX", "KYNOCK", "HUDSON_BAY", "SANDPOINT",
+                                           "FIVEMILE", "EARLY STUART"),
+                          Chilliwack = c("CHILLIW_LAKE", "DOLLYVARDEN_CR"),
+                          Pitt = c("PITT"),
+                          Nadina_Gates_Bowron_Nahatlatch = c("NADINA", "GATES_CR", "BOWRON",
+                                                             "NAHATLATCH"),
+                          Early_Thompson = c("SEYMOUR", "SCOTCH", "EAGLE", "U_ADAMS", "CAYENNE",
+                                             "FENNELL", "EARLY THOMPSON"),
+                          Harrison_Widgeon = c("HARRISON", "WIDGEON_SLOUGH"),
+                          Late_Stuart_Stellako = c("MIDDLE", "PINCHI_CR", "TACHIE", "STELLAKO",
+                                                   "KUZKWA_CR", "LATE STUART"),
+                          Chilko = c("CHILKO", "CHILKO-NORTH", "CHILKO_SOUTH"),
+                          Quesnel = c("L_HORSEFLY", "U_HORSEFLY", "HORSEFLY", "MCKINLEY",
+                                      "MITCHELL", "WASKO_CR", "BLUE_LEAD_CK", "QUESNEL_DECEPT",
+                                      "QUESNEL_HORSEF", "QUESNEL_MITCHE", "ROARING", "QUESNEL"),
+                          Raft_North_Thompson = c("RAFT", "THOMPSON_N"),
+                          Birkenhead_Big_Silver = c("BIRKENHEAD", "BIG_SILVER"),
+                          Late_Shuswap_Portage = c("EAGLE_L", "LITTLE", "L_SHUSWAP", "MIDDLESHUSWAP",
+                                                   "L_ADAMS", "PORTAGE_CR", "LATE SHUSWAP", "SHUSWAP"),
+                          Weaver_Cultus = c("WEAVER", "CULTUS_LAKE")
+    )
+}
+```
+
+```{r, join data}
+# Download stock ID sample and results data
+
+survey_seines_fish <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/2d398b3f906915ba88ed6f5fae3022e2e73082fb/jsp_catch_and_bio_data_complete.csv", guess_max = 20000)
+
+#survey_seines_fish$stock_1 <- toupper(survey_seines_fish$stock_1)
+
+dna <- survey_seines_fish %>% 
+  filter(prob_1 > 0.7) %>% # remove stock assignments with low probabilities
+  mutate(is_DI = grepl(x = site_id, pattern = "D"),
+         region = if_else(is_DI == TRUE, "DI", "JS"),
+         year = year(survey_date),
+         yday = yday(survey_date),
+         lumped_stock_group = lump_fraser_sockeye_stocks(stock_1)) %>% 
+  filter(year %in% c(2015, 2016)) |> 
+  select(year, ufn, survey_date, yday, region, region_1, stock_1, lumped_stock_group)
+
+```
+
+
+```{r, supplemental fig unlumped stocks both regions combined}
+
+#Table S2.1
+unlumped_sg_props <- dna %>% 
+  group_by(year, stock_1) %>%  
+  summarize(n = n()) %>% 
+  mutate(proportion = n / sum(n)) %>% 
+  arrange(-proportion) %>% 
+  ungroup()
+
+write_csv(unlumped_sg_props, here("processed", "stock_summary_and_props_table_s2.1.csv"))
+
+dna <- dna |> 
+  filter(region_1 < 5) # remove non-fraser stocks for plot
+#Figure S2.1
+plot <- ggplot(dna, aes(x = reorder(tolower(stock_1), c(-yday)), y = yday)) +
+  geom_boxplot(aes(fill = lumped_stock_group)) + # groups stocks in legend and colout while maintaining individal stocks in the plot
+  facet_grid(. ~ year) +
+  coord_flip() +
+  geom_text(data = unlumped_sg_props, aes(x = tolower(stock_1), 200, label = n), vjust = 0.5, hjust = 1) +
+  xlab("Genetic Stock")+
+  ylab("Date") +
+  theme_bw(base_size = 16) +
+  theme(legend.position = "bottom") +
+  scale_y_continuous(limits = c(132, 200),
+                     breaks = c(135, 152, 166, 182, 196), 
+                     labels = c("May 15", "June 1", "June 15", 
+                                "July 1", "July 15")) +
+  scale_fill_brewer(palette = "Paired") +
+  labs(fill = "Stock Management Group")
+
+plot + guides(fill = guide_legend(ncol = 3, title.position = "top"))
+
+ggsave(here("figs", "genetic_stock_ID", "p_seventy_un-lumped_fraser_stock_timing.png"), width = 24, height = 26, units = "cm")
+```
