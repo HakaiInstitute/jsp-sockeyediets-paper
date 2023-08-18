@@ -15,6 +15,7 @@ library(car)
 
 spat <- read_csv(here::here("raw", "spatial.csv")) 
 temp <- read_csv(here::here("raw", "Temporal.csv"))
+survey_seines_fish <- read_csv("https://raw.githubusercontent.com/HakaiInstitute/jsp-data/master/jsp_catch_and_bio_data_complete.csv")
 
 spat <- spat %>%
   mutate(date = make_date(year, month, day)) %>%
@@ -23,7 +24,7 @@ spat <- spat %>%
 
 temp <- temp %>%
  select(ufn, date, year, month, day, location, region, site, forklength, fishweight, corrected.bolus.ww = corrected.ww, phylum, class, order, infraorder, family, genus, plot.taxon.g, plot.taxon, life.stage, DI, count, size, length.avg, corrected.prey.weight = corrected.weight) %>%
-  mutate(month = as.numeric(month), fishweight = as.numeric(fishweight))
+  mutate(month = as.numeric(month), fishweight = as.numeric(fishweight), day = as.numeric(day), length.avg = as.numeric(length.avg))
 
 dat <- full_join(spat, temp)
 
@@ -31,14 +32,6 @@ meta <- read_csv(here::here("processed", "metadata.csv"))
 clust_meta <- read_csv(here("processed", "metadata_with_clusters.csv"))
 
 
-# Download stock ID sample and results data
-gsi_samples <- read_csv(here::here("raw", "JSP/dna_samples.csv"))
-stock_id <- read_csv(here::here("raw", "JSP/stock_id.csv"))
-survey_seines_fish <- read_csv(here::here("raw", "JSP/survey_seines_fish.csv"))
-fish_lab <- read_csv(here::here("raw", "JSP/fish_lab_data.csv"))
-
-dna <- right_join(survey_seines_fish, gsi_samples, by = 'ufn') %>% 
-  right_join(stock_id, by = "sample_id") %>% 
   mutate(is_DI = grepl(x = site_id, pattern = "D"))
 ```
 
@@ -53,18 +46,11 @@ fish_count <- survey_seines_fish %>%
   group_by(year) %>%
   mutate(all_so = sum(so_total, na.rm = T), all_so_taken = sum(so_taken, na.rm = T))
 
-fish_GSI <- dna %>%
-  mutate(year = year(ymd(survey_date))) %>%
-  filter(year == 2016)
-
-compare <- anti_join(fish_count, fish_GSI, by = "seine_id")
-  
 ```
 
 ```{r}
 gfi_timing <- temp %>%
   select(ufn, date, location, site, fishweight, corrected.bolus.ww) %>%
-  #filter(corrected.bolus.ww > 0, !is.na(fishweight)) %>%
   group_by(ufn) %>%
   mutate(gfi = (((corrected.bolus.ww)/1000)/(fishweight))*100) %>%
   distinct() 
@@ -94,8 +80,9 @@ write_csv(fish_metrics, "../processed/fish_metrics.csv")
 
 
 ```{r fish sizes}
-fish_dat <- left_join(survey_seines_fish, fish_lab[,c("ufn", "weight", "fork_length")], by = "ufn") %>%
-  mutate(year = year(survey_date), yday = yday(survey_date))  %>%
+# formatting data
+fish_dat <- survey_seines_fish %>%
+  mutate(year = year(survey_date), week = week(survey_date), yday = yday(survey_date))  %>%
   filter(year %in% c(2015:2016), species == "SO", fork_length != "NA") %>%
   select(-c(4:13, 16:19, 26:29, 33:45, 49:57)) %>%
   mutate(location = case_when(grepl("D", site_id) ~ "DI",
@@ -114,16 +101,18 @@ fish_dat <- left_join(survey_seines_fish, fish_lab[,c("ufn", "weight", "fork_len
                          location == "JS" & year == 2016 & yday > 164 ~ "Late")) %>%
   mutate(tperiod = as.factor(tperiod))
 
+# visually assess fork length distribution for normality
 hist(fish_dat$fork_length)
 
+# compare forklengths
 ggboxplot(fish_dat, x = "tperiod", y = "fork_length", color = "location")
 
+# compare forklengths between years
 ggplot(fish_dat, aes(x = location, y = fork_length, fill = year)) + 
   geom_boxplot(outlier.shape = NA) + 
-  geom_jitter(width = 0.2) + 
   theme(legend.position="top")
 
-
+# compare forklengths over time
 ggplot(fish_dat, aes(x = as.factor(week), y = fork_length, color = location)) +
   geom_boxplot() +
   facet_wrap(~year) +
@@ -137,6 +126,7 @@ ggplot(fish_dat, aes(x = as.factor(week), y = fork_length, color = location)) +
                                 "July 1", "July 15")) 
 ggsave("../figs/migrationtiming/forklengths_all.png", width = 15, height = 10, units = "cm")
 
+# test for significant differences in forklengths over time and between locations (factorial anova)
 FL_aov <- aov(fork_length ~ location*year*tperiod, data = fish_dat)
 summary(FL_aov)
 plot(FL_aov)
@@ -145,195 +135,6 @@ par(mar=c(5,12,4,1))
 plot(TukeyHSD(FL_aov, conf.level = 0.95), las = 2)
 
 
-z <- lm(fork_length~location+year+location*year, data = fish_dat)
-summary(z)
-plot(z)
-
-
-hist(fish_dat$weight)
-leveneTest(weight~location, data = fish_dat)
-kruskal.test(weight~location, data = fish_dat)
-
-ggboxplot(fish_dat, x = "year", y = "weight", color = "location")
-
-z <- lm(weight~location+year+location*year, data = fish_dat)
-summary(z)
-plot(z)
-
-FW_aov <- aov(weight ~ location + year + location*year, data = fish_dat)
-summary(FL_aov)
-plot(FL_aov)
-
-#comparing means
-library(emmeans)
-emmeans(FW_aov, "location", "year", data = fish_dat)
-grpmeans <- emmeans(FW_aov, "location", "year", data = fish_dat)
-pairs(grpmeans)
-cld(grpmeans)
-plot(grpmeans, comparisons = TRUE)
-
-ggplot(dat, aes(x = as.factor(year), y = forklength)) +
-  geom_boxplot() 
-  #facet_wrap(~year)
-
 ```
 
-```{r GSI diet}
-# Just using stock ID for samples that we processed diets for
-stocks <- meta %>%
-  mutate(yday = yday(date)) %>%
-  mutate(tperiod = case_when(location == "DI" & year == 2015 & yday < 141 ~ "Early",
-                         location == "DI" & year == 2015 & yday > 140 & yday < 155 ~ "Peak",
-                         location == "DI" & yday > 154 ~ "Late",
-                         location == "DI" & year == 2016 & yday < 139 ~ "Early",
-                         location == "DI" & year == 2016 & yday > 138 & yday < 155 ~ "Peak",
-                         location == "JS" & year == 2015 & yday < 148 ~ "Early",
-                         location == "JS" & year == 2015 & yday > 147 & yday < 158 ~ "Peak",
-                         location == "JS" & yday > 157 ~ "Late",
-                         location == "JS" & year == 2016 & yday < 149 ~ "Early",
-                         location == "JS" & year == 2016 & yday > 148 & yday < 164 ~ "Peak")) %>%
-  mutate(tperiod = factor(tperiod, levels = c("Early", "Peak", "Late"))) %>%
-  group_by(year, tperiod, stock_1) %>%
-  tally() %>%
-  mutate(sum = sum(n)) %>%
-  mutate(prop = (n/sum)*100) %>%
-  filter(prop > 5)
-
-# To generate unique colour palette
-n <- 18
-qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-
-# plotting stock comp per tperiod
-stock_timingplot <- ggplot(data = stocks, aes(x = tperiod, y = n)) + 
-        geom_bar(aes(fill = stock_1), position = "fill", stat = "identity", colour = "black") +
-        theme_classic()+
-  facet_grid(.~year) +
-        theme(
-                axis.text.x = element_text(size = 10),
-                axis.text.y = element_text(size = 10),
-                axis.title.x = element_blank(),
-                axis.title.y = element_text(size = 11, margin = margin(r=10)),
-                panel.background = element_rect(fill = "white", colour = "grey50"),
-                strip.background = element_blank(),
-                legend.title=element_blank(),
-                legend.text = element_text(size = 10),
-                legend.key.size = unit(0.7, "line"),
-                legend.position = "bottom",
-                legend.justification = "center",
-                plot.margin = unit(c(0.5,0.5,0.2,0.2), "cm")) +
-        labs(y = "Proportion of Sockeye") +
-        #scale_y_continuous(expand = c(0,0.02))
-        scale_fill_manual(values = col_vector)
-stock_timingplot
-
-ggsave("../figs/GSI/stock_timing.png", width = 16, height = 16, units = "cm")
-
-stocks_clust <- clust_meta %>%
-  group_by(cluster, stock_1) %>%
-  tally() %>%
-  mutate(sum = sum(n)) %>%
-  mutate(prop = (n/sum)*100) %>%
-  filter(prop > 5, cluster != "D")
-
-samplesizes <- data.frame(x=c("A", "B", "C"), y=c(1.02, 1.02, 1.02), z=c(173, 69, 41))
-
-# plotting stock comp per cluster
-stock_clusterplot <- ggplot(data = stocks_clust, aes(x = cluster, y = n)) + 
-        geom_bar(aes(fill = stock_1), position = "fill", stat = "identity", colour = "black") +
-        geom_text(data = samplesizes, aes(x = x, y = y, label = as.factor(z))) +
-        theme_classic()+
-        theme(
-                axis.text.x = element_text(size = 10),
-                axis.text.y = element_text(size = 10),
-                axis.title.x = element_blank(),
-                axis.title.y = element_text(size = 11, margin = margin(r=10)),
-                panel.background = element_rect(fill = "white", colour = "grey50"),
-                strip.background = element_blank(),
-                strip.text = element_blank(),
-                legend.title=element_blank(),
-                legend.text = element_text(size = 10),
-                legend.key.size = unit(0.7, "line"),
-                legend.position = "bottom",
-                legend.justification = "center",
-                plot.margin = unit(c(0.5,0.5,0.2,0.2), "cm")) +
-        labs(y = "Proportion of Sockeye") +
-        scale_y_continuous(expand = c(0,0.02))
-        #scale_fill_manual(values = ID_col)
-stock_clusterplot <- stock_clusterplot + guides(fill = guide_legend(nrow = 2, byrow = TRUE))
-stock_clusterplot
-
-ggsave("../figs/GSI/stock_bycluster.png", width = 8, height = 13, units = "cm")
-
-
-```
-
-```{r GSI all}
-# USing all stock data
-
-GSI <- dna %>%
-  select(survey_date, site_id, ufn, stock_1, region_1, prob_1) %>%
-  mutate(stock_1 = tolower(stock_1)) %>%
-  mutate(year = year(ymd(survey_date)), yday = yday(ymd(survey_date))) %>%
-  #filter(prob_1 > 0.6, year < 2017) %>%
-  group_by(year) %>%
-  mutate(count = length(unique(stock_1)), samples = length(unique(ufn)))
-
-
-stock_timing <- GSI %>%
-  mutate(stock_1 = case_when(stock_1 %in% c("horsefly", "mitchell", "quesnel_decept", "quesnel_horsef", "quesnel_mitche") ~ "quesnel composite",
-                             TRUE ~ stock_1)) %>%
-  group_by(year, stock_1) %>%
-  mutate(stock_count = length(unique(ufn))) %>%
-  mutate(med_yday = median(yday)) %>%
-  mutate(region = case_when(region_1 == 1 ~ "Early Stuart (Fraser)",
-                            region_1 == 2 ~ "Early Summer (Fraser)",
-                            region_1 == 3 ~ "Summer (Fraser)",
-                            region_1 == 4 ~ "Late (Fraser)",
-                            region_1 == 5 ~ "Washington",
-                            region_1 == 6 ~ "South Coast",
-                            region_1 == 7 ~ "Vancouver Isl",
-                            region_1 == 18 ~ "Central Coast")) %>%
-  group_by(year) %>%
-  mutate(total = length(unique(ufn)), prop = (stock_count/total)*100) %>%
-  filter(stock_count > 1)
-
-stock_count_table1 <- stock_timing %>%
-  group_by(region, year) %>%
-  summarise(n = length(unique(ufn))) %>%
-  group_by(year) %>%
-  mutate(total = sum(n), prop = (n/total)*100)
-
-stock_count_table2 <- stock_timing %>%
-  select(year, stock_1, stock_count) %>%
-  distinct() %>%
-  group_by(year) %>%
-  mutate(total = sum(stock_count), prop = (stock_count/total)*100) %>%
-  filter(prop > 4.9)
-write_csv(stock_count_table2, "../processed/stock_comp_full_table.csv")
-  
-
-rect <- data.frame(year = c(2015, 2016), ymin = c(141, 139), ymax = c(158, 163))
-
-ggplot(stock_timing, aes(x = reorder(region, med_yday), y = yday)) +
-  geom_boxplot() +
-  geom_rect(aes(ymin = ymin, ymax = ymax, xmin = -Inf, xmax = Inf), alpha = 0.2, fill = c("grey50"), linetype = 5, data = rect, inherit.aes = FALSE) +
-  coord_flip() +
-  facet_wrap(~year) +
-  theme_bw() +
-  theme(axis.title.y = element_blank())
-ggsave("../figs/GSI/stock_region_yday.png", width = 18, height = 10, units = "cm")
-
-ggplot(stock_timing, aes(x = reorder(stock_1, med_yday), y = yday, fill = region)) +
-  geom_boxplot() +
-  coord_flip() +
-  facet_wrap(~year) +
-  theme_bw() +
-  theme(axis.title.y = element_blank(),
-        legend.position = "bottom") +
-  labs(fill = "Stock Group") %>%
-  scale_fill_brewer(palette = "Set1", direction = -1)
-ggsave("../figs/GSI/stock_yday.png", width = 18, height = 18, units = "cm")
-
-```
 
